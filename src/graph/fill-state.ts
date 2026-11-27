@@ -141,9 +141,10 @@ export async function edgeRowsIn(tx: SqlExecutor, relation: string, end: 'from' 
   if (ids.length === 0) return [];
   return await withSpan('graph.fill.edges', { 'graph.kind': relation }, async () => {
     // Each id is followed through the end's own index, so the read costs what its ids cost and the planner cannot
-    // trade that for a walk whose price follows the store (madarch-64o5.176).
+    // trade that for a walk whose price follows the store (madarch-64o5.176). A repeated id is one id, as it was
+    // for the `=ANY` this replaces.
     const held = await tx.query<{id:string;from_node:string;to_node:string}>(`SELECT e.id::text AS id,e.from_node::text AS from_node,e.to_node::text AS to_node
-      FROM unnest($2::bigint[]) held(id) CROSS JOIN LATERAL (SELECT e.id,e.from_node,e.to_node FROM edge e
+      FROM unnest(ARRAY(SELECT DISTINCT unnest($2::bigint[]))) held(id) CROSS JOIN LATERAL (SELECT e.id,e.from_node,e.to_node FROM edge e
         WHERE e.${end === 'from' ? 'from_node' : 'to_node'}=held.id AND e.entity_id=(SELECT id FROM entity WHERE name=$1) OFFSET 0) e
       ORDER BY e.id`, [relation, ids]);
     return held.rows.map(row => ({ id: Number(row.id), from: Number(row.from_node), to: Number(row.to_node) }));

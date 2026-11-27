@@ -273,6 +273,8 @@ export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphCont
     const held = await readKindAssertions(tx, 'vertex', kind, vertex.key.includes(field) ? [] : [field], { contract, currentValues: true });
     // One batched reference read for the candidates, never one per row.
     const matching = held.filter(row => Object.keys(key).every(k => row.key[k] === key[k]));
+    // A miss reads no key edge: the reference batch is only worth its statement when a candidate is left.
+    if (matching.length === 0) return null;
     const refs = await referencesOf(tx, contract, kind, matching.map(row => row.id));
     const matches: import('./records.js').AssertionRecord[] = [];
     for (const row of matching) {

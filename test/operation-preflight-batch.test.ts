@@ -44,7 +44,9 @@ test('operation preflight batches selected state and replay precedes attempt aut
     expect(await replay.execute(request, async () => { calls++; return { calls }; })).toEqual({ calls: 1 });
     await expect(replay.execute({ ...request, request: { changed: true } }, async () => null)).rejects.toThrow('IDEMPOTENCY_CONFLICT');
     expect(calls).toBe(1);
-    const assertionReads = statements.filter(sql => sql.includes('batches ORDER BY request_index'));
+    // The batch read is one statement whose selection is materialized as `batches` and whose rows are ordered by
+    // their request; the values, lineage and repository targets ride along as laterals and change nothing here.
+    const assertionReads = statements.filter(sql => sql.includes('WITH batches AS MATERIALIZED') && sql.includes('ORDER BY request_index,property_rank,recorded_sequence::bigint'));
     expect(assertionReads).toHaveLength(1);
     expect(assertionReads[0]).toContain('selection_pick');
     expect(statements.filter(sql => sql.includes('SELECT clock_timestamp()::text AS now'))).toHaveLength(0);

@@ -15,8 +15,14 @@ import { bindTestWriteCapability } from './write-capability-fixture.js';
 
 const kinds = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
 const contract: GraphContract = {
-  vertex: kinds.map(name => ({ name, table: generatedTableName(name, 'vertex'), key: ['name'], fields: [{ name: 'name', type: 'text' as const }, { name: 'note', type: 'text' as const, nullable: true }], capability: 'fixture' })),
-  edge: [],
+  vertex: [
+    ...kinds.map(name => ({ name, table: generatedTableName(name, 'vertex'), key: ['name'], fields: [{ name: 'name', type: 'text' as const }, { name: 'note', type: 'text' as const, nullable: true }], capability: 'fixture' })),
+    // A kind whose key is not unique on its own: two notes may carry one name under two owners, and only the key
+    // edge tells them apart.
+    { name: 'note', table: generatedTableName('note', 'vertex'), key: ['name'], keyEdges: [{ role: 'owner', edge: 'owns', direction: 'from' as const, onDelete: 'restrict' as const }], fields: [{ name: 'name', type: 'text' as const }, { name: 'note', type: 'text' as const, nullable: true }], capability: 'fixture' },
+    { name: 'owner', table: generatedTableName('owner', 'vertex'), key: ['name'], fields: [{ name: 'name', type: 'text' as const }], capability: 'fixture' },
+  ],
+  edge: [{ name: 'owns', table: generatedTableName('owns', 'edge'), from: ['note'], to: ['owner'], fields: [], repeats: false, cardinality: { from: 'many' as const, to: 'one' as const }, labels: { en: { out: 'owned by', in: 'owns' }, ru: { out: 'owned by', in: 'owns' } }, capability: 'fixture' }],
   dictionary: [],
 };
 
@@ -34,6 +40,19 @@ const seed = async (owner: DatabaseOwner, perKind: number): Promise<void> => awa
   for (const name of kinds) {
     await publishGraphDrafts(tx, contract, { vertices: Array.from({ length: perKind }, (_, index) => ({ kind: name, key: { name: `${name}-${String(index)}` }, values: { note: `${name} ${String(index)}` }, validFrom: '2020-01-01', producer: 'fixture', producerVersion: '1' })), removals: [] });
   }
+});
+
+/** One note under each of the given owners, all of them carrying the same name. */
+const notes = async (owner: DatabaseOwner, owners: readonly number[]): Promise<void> => await owner.transaction('write', async tx => {
+  await bindTestWriteCapability(tx, contract);
+  const held = owners.map(index => ({ kind: 'owner', key: { name: `owner-${String(index)}` } }));
+  await publishGraphDrafts(tx, contract, {
+    vertices: [
+      ...held.map(ref => ({ ...ref, producer: 'fixture', producerVersion: '1' })),
+      ...owners.map((index, position) => ({ kind: 'note', key: { name: 'note-0' }, keyEdges: { owner: held[position]! }, values: { note: `note ${String(index)}` }, producer: 'fixture', producerVersion: '1' })),
+    ],
+    removals: [],
+  });
 });
 
 test('a producer facts read answers every kind in one assertion statement', async () => {
@@ -58,18 +77,21 @@ test('a producer facts read answers every kind in one assertion statement', asyn
   } finally { await owner.close(); }
 }, 60_000);
 
-test('a catalogue value lookup costs the same with one row and with twenty', async () => {
+test('a catalogue value lookup costs the same with two candidates of one key and with twenty', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
   try {
-    await seed(owner, 1);
+    await notes(owner, [0, 1]);
     const read = async (): Promise<string[]> => {
       const { owner: counted, statements } = counting(owner);
-      expect(await pluginGraphValue(counted, contract, 'alpha', { name: 'alpha-0' }, 'note')).toBe('alpha 0');
+      // Both candidates carry the name `note-0`; the owner edge chooses, so every candidate's key edge is read.
+      expect(await pluginGraphValue(counted, contract, 'note', { name: 'note-0' }, 'note', { owner: { kind: 'owner', key: { name: 'owner-1' } } })).toBe('note 1');
       return statements;
     };
-    const single = await read();
-    await seed(owner, 19);
+    const two = await read();
+    // One statement for the rows and one for their key edges, whatever the number of candidates.
+    expect(two.filter(sql => sql.includes('WITH batches AS MATERIALIZED'))).toHaveLength(2);
+    await notes(owner, Array.from({ length: 18 }, (_, index) => index + 2));
     const many = await read();
-    expect(many).toHaveLength(single.length);
+    expect(many).toHaveLength(two.length);
   } finally { await owner.close(); }
 }, 60_000);

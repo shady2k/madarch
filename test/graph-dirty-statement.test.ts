@@ -84,3 +84,25 @@ test('a statement that inserts no row leaves the accounting of the statement bef
     });
   } finally { await owner.close(); }
 }, 60_000);
+
+test('a check that ran inside the statement is repeated once the statement accounts its own rows', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract, authenticated: false });
+  try {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, contract);
+      await publishGraphDrafts(tx, contract, { vertices: names.map(name => ({ kind: 'ledger', key: { name }, values: { amount: 1 }, validFrom: '2020-01-01', producer: 'fixture', producerVersion: '1' })), removals: [] });
+      // Every check from here runs when its statement ends: it sees the accounting of the statements before it and
+      // none of the rows of its own. The statement's accounting repeats it, so a row the statement itself inserted
+      // is refused on that statement rather than on the next one.
+      const missingKey = `INSERT INTO node(entity_id,uid,key,identity_scope) VALUES ((SELECT id FROM entity WHERE name='ledger'),gen_random_uuid(),'{}'::jsonb,gen_random_uuid())`;
+      await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await tx.query('SAVEPOINT pending_check');
+      await expect(tx.query(missingKey)).rejects.toThrow(':214: IMMUTABLE_KEY missing or contradictory assertion for ledger.name');
+      // The repeat and the refusal roll back with the row, so the accounting stands where the statement found it.
+      await tx.query('ROLLBACK TO SAVEPOINT pending_check');
+    });
+    // The refused row is the only casualty: the transaction's own graph stands.
+    const kept = await owner.transaction('snapshot', async tx => await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM node WHERE entity_id=(SELECT id FROM entity WHERE name='ledger')`));
+    expect(Number(kept.rows[0]!.count)).toBe(names.length);
+  } finally { await owner.close(); }
+}, 60_000);

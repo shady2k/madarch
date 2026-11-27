@@ -48,7 +48,8 @@ async function fixture(count = 1) {
           const stack = new Error().stack ?? '';
           if (stack.includes('settleRun') && sql.includes('max(recorded_sequence)')) settlementStampReads += 1;
           if (stack.includes('controlEvidenceIn')) settlementEvidenceReads += 1;
-          if (values?.[0] === 'system.unit-run' && sql.includes('e.to_node=ANY')) runMembership = true;
+          // The run's units are met through the `to` end of `system.unit-run`, each id following its own index.
+          if (values?.[0] === 'system.unit-run' && sql.includes('e.to_node=held.id')) runMembership = true;
           if (sql.includes('SELECT DISTINCT n.id')) runMembership = false;
           if (kind === 'snapshot' && runMembership && values?.[0] === 'system.unit-replacement') membershipReads += 1;
           return await tx.query<Row>(sql, values);
