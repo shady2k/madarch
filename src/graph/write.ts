@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {CommittedLookups,TransactionLookups} from './immutable-lookups.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
-import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract } from './contract.js';
+import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract, type VertexContract } from './contract.js';
 import { withAssertionContract } from './system-contract.js';
 import { keyUid, newUid } from './uid.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
@@ -203,7 +203,17 @@ export async function resolveEntityRef(executor:SqlExecutor,contract:GraphContra
 export async function resolveEntityRefs(executor:SqlExecutor,declared:GraphContract,refs:readonly EntityRefDraft[],context=1):Promise<{id:string;uid:string}[]> {
  return await withSpan('graph.identity.resolveBatch',{'graph.references':refs.length},async()=>{
   if(refs.length===0)return [];
-  const contract=withAssertionContract(declared);
+  const resolved=await readEndpoints(executor,withAssertionContract(declared),refs,context);
+  return resolved.map(ref=>{
+   if('error' in ref)throw ref.error;
+   if(!ref.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
+   return {id:ref.id,uid:ref.uid};
+  });
+ });
+}
+
+interface RemovalEndpoint extends Record<string, unknown> {id:string;uid:string;kind:string;active:boolean}
+async function readEndpoints(executor:SqlExecutor,contract:GraphContract,refs:readonly EntityRefDraft[],context:number):Promise<(RemovalEndpoint|{error:unknown})[]>{
   const requested:{kind:string;uid:string}[]=[];
   let validationFailure: {error: unknown} | undefined;
   for(const ref of refs){
@@ -212,21 +222,23 @@ export async function resolveEntityRefs(executor:SqlExecutor,declared:GraphContr
     requested.push({kind:ref.kind,uid:await refUid(executor,contract,resolved,context)});
    } catch(error) { validationFailure={error}; break; }
   }
-  const rows=requested.length===0?[]:(await withSpan('graph.write.endpointBatch',{'db.system':'postgres'},()=>executor.query<{id:string;uid:string;requested:string;kind:string;active:boolean}>(`WITH locked AS MATERIALIZED (
+  const rows=requested.length===0?[]:(await withSpan('graph.write.endpointBatch',{'db.system':'postgres'},()=>executor.query<RemovalEndpoint&{requested:string}>(`WITH locked AS MATERIALIZED (
    SELECT n.id,n.uid,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id
    WHERE n.uid IN (SELECT value::uuid FROM unnest($1::text[]) input(value)) ORDER BY n.id FOR UPDATE OF n
-  ) SELECT id::text,uid::text,input.value AS requested,kind,graph_vertex_active(id,kind,$2::bigint) AS active
-    FROM locked JOIN unnest($1::text[]) input(value) ON locked.uid=input.value::uuid`,[[...new Set(requested.map(ref=>ref.uid))],context]))).rows;
+  ), kinds AS MATERIALIZED (
+   SELECT kind,array_agg(id) AS ids FROM locked GROUP BY kind
+  ), active AS MATERIALIZED (
+   SELECT selected.id FROM kinds CROSS JOIN LATERAL graph_vertex_active_ids_batch(kinds.kind,$2::bigint,kinds.ids,NULL::timestamptz,NULL::bigint) selected(id)
+  ) SELECT locked.id::text,uid::text,input.value AS requested,kind,active.id IS NOT NULL AS active
+    FROM locked JOIN unnest($1::text[]) input(value) ON locked.uid=input.value::uuid LEFT JOIN active USING(id)`,[[...new Set(requested.map(ref=>ref.uid))],context]))).rows;
   const held=new Map(rows.map(row=>[row.requested,row]));
-  // Preserve scalar first-failure order even when a later reference fails identity validation.
-  const resolved=requested.map(ref=>{
+  const resolved:(RemovalEndpoint|{error:unknown})[]=requested.map(ref=>{
    const row=held.get(ref.uid);
-   if(!row||row.kind!==ref.kind||!row.active)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`);
-   return {id:row.id,uid:ref.uid};
+   if(!row||row.kind!==ref.kind)return {error:new Error(`${WHERE}:73: MISSING_ENDPOINT ${ref.kind} ${ref.uid}`)};
+   return {id:row.id,uid:ref.uid,kind:row.kind,active:row.active};
   });
-  if(validationFailure!==undefined)throw validationFailure.error;
+  if(validationFailure!==undefined)resolved.push(validationFailure);
   return resolved;
- });
 }
 export async function ensureVertex(executor:SqlExecutor,declared:GraphContract,draft:Pick<VertexDraft,'kind'|'key'|'keyEdges'|'uid'>,context=1):Promise<{nodeId:string;uid:string;created:boolean;revived:boolean}>{
  const prepared=preparePublicationContract(declared);
@@ -300,12 +312,15 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
  const requested=[binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid),...references.values()];
  const held=(await executor.query<BatchNode>(`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) OR n.id=ANY($2::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[requested,inputs.filter(input=>input.sort==='vertex').map(input=>input.subjectId)])).rows;
  const nodes=new Map(held.map(node=>[node.uid,{...node,parents:[]}]));
+ const nodesById=new Map(held.map(node=>[node.id,node]));
  const edgeSubjects=(await executor.query<{id:string;kind:string;from:string;to:string}>(`SELECT e.id::text,k.name AS kind,e.from_node::text AS "from",e.to_node::text AS "to" FROM edge e JOIN entity k ON k.id=e.entity_id WHERE e.id=ANY($1::bigint[]) ORDER BY e.id FOR UPDATE OF e`,[inputs.filter(input=>input.sort==='edge').map(input=>input.subjectId)])).rows;
+ const edgesById=new Map(edgeSubjects.map(edge=>[edge.id,edge]));
  const subjectNodes:string[]=[];const needActive=new Map<string,{uid:string;kind:string;error:string}>();
  for(const input of inputs){
-  const subject=input.sort==='vertex'?held.find(node=>node.id===input.subjectId):edgeSubjects.find(edge=>edge.id===input.subjectId);
-  if(subject?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
-  if(input.sort==='vertex')subjectNodes.push(input.subjectId);else{const edge=edgeSubjects.find(edge=>edge.id===input.subjectId)!;subjectNodes.push(edge.from,edge.to);}
+  const node=input.sort==='vertex'?nodesById.get(input.subjectId):undefined;
+  const edge=input.sort==='edge'?edgesById.get(input.subjectId):undefined;
+  if((node??edge)?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
+  if(edge)subjectNodes.push(edge.from,edge.to);else subjectNodes.push(input.subjectId);
   for(const mention of input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${input.kind} ${mention.uid}`);needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:'TARGET_MISSING'});}
   for(const evidence of input.evidence??[]){const uid=references.get(evidence)!,node=nodes.get(uid);if(!node||node.kind!==evidence.target.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind} ${uid}`);needActive.set(uid,{uid,kind:node.kind,error:'MISSING_ENDPOINT'});}
  }
@@ -518,8 +533,11 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  });
  const tables=new Map<string,{kind:string;sort:'vertex'|'edge';property:string;inputs:BatchAssertion[]}>();
  const slots=new Map<string,string>();
+ // Retractions are always appended. Only slots that can repeat an assertion need their prior stream.
+ const assertedSlots=new Set(assertions.filter(input=>input.operation==='assert').map(input=>JSON.stringify([input.kind,input.sort,input.property])));
  for(const input of assertions){
   const slot=JSON.stringify([input.kind,input.sort,input.property]);
+  if(!assertedSlots.has(slot))continue;
   let table=slots.get(slot);
   if(table===undefined){table=assertionValueTableName(input.kind,input.sort,input.property);slots.set(slot,table);tables.set(table,{kind:input.kind,sort:input.sort,property:input.property,inputs:[]});}
   tables.get(table)!.inputs.push(input);
@@ -538,7 +556,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
  interface StreamRow extends Record<string,unknown> {sort:string;subject:string;property:string;language:string|null;operation:string;valid_from:string;valid_to:string|null;recorded_sequence:string;uid:string;id:string;value:unknown}
  const streams=new Map<string,StreamRow[]>();
  const streamKey=(sort:string,subject:string,property:string,language:string|null)=>JSON.stringify([sort,subject,property,language]);
- const streamRows=(await executor.query<StreamRow>(streamParts.length?streamParts.join(' UNION ALL '):'SELECT NULL WHERE FALSE',[JSON.stringify(assertions.map(input=>({sort:input.sort,kind:input.kind,subject:input.subjectId,property:input.property,language:input.language??null}))),context])).rows;
+ const streamRows=streamParts.length?(await executor.query<StreamRow>(streamParts.join(' UNION ALL '),[JSON.stringify(assertions.map(input=>({sort:input.sort,kind:input.kind,subject:input.subjectId,property:input.property,language:input.language??null}))),context])).rows:[];
  for(const row of streamRows){const key=streamKey(row.sort,row.subject,row.property,row.language);const held=streams.get(key)??[];held.push(row);streams.set(key,held);}
  // Immutable support checks include all history, not just the current source stream.
  const immutableTables=new Map<string,{kind:string;property:string;ids:string[]}>();
@@ -663,43 +681,227 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
  }catch(error){if(error instanceof Error){error.message+=`; subject ${draft.kind} ${draft.uid??canonicalJson(draft.key)}`;throw error;}throw error;}}
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(kind=>kind.name===draft.kind);if(!kind)throw new Error(`${WHERE}:198: UNKNOWN_EDGE ${draft.kind}`);checkRef(draft.from);checkRef(draft.to);checkFields(kind,draft.values??{});}
  let written=await publishBatch(executor,prepared,drafts,context);
- for(const draft of drafts.removals){if(await removeEntity(executor,contract,draft,context))written++;}
- for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,draft.producer,undefined,context,draft.evidence))written++;}
+ if(drafts.removals.length)written+=await removeEntities(executor,contract,drafts.removals,context);
+ for(const draft of drafts.edgeRemovals??[]){const from=await endpoint(executor,contract,draft.from,context);const to=await endpoint(executor,contract,draft.to,context);const edge=(await executor.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.from_node=$2::bigint AND e.to_node=$3::bigint AND e.discriminator=$4 AND e.context_id=$5`,[draft.kind,from.id,to.id,draft.discriminator??'',context])).rows[0];if(edge&&await withdrawEdge(executor,contract,draft.kind,edge.id,context,draft.evidence))written++;}
  return written;
  });
 }
-async function retractPropertyStreams(executor:SqlExecutor,contract:GraphContract,sort:'vertex'|'edge',kind:string,subjectId:string,property:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<void>{
- return await withSpan('graph.write.retractPropertyStreams',{},async()=>{
- const binding=requireWriteCapability(executor);
- const association=sort==='vertex'?'JOIN assertion_vertex_subject subject ON subject.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=subject.subject_edge_id':'JOIN assertion_edge_subject subject ON subject.assertion_id=a.assertion_id';
- const subject=sort==='vertex'?'attachment.to_node':'subject.edge_id';
- const languages=(await executor.query<{language:string|null}>(`SELECT DISTINCT a.language FROM assertion a ${association} JOIN edge source ON source.from_node=a.assertion_id JOIN entity k ON k.id=source.entity_id AND k.name='system.assertion-source' JOIN node principal ON principal.id=source.to_node WHERE ${subject}=$1::bigint AND a.property=$2 AND principal.uid=$3::uuid AND a.context_id=$4`,[subjectId,property,binding.sourceUid,context])).rows;
- await admitAssertionInputs(executor,contract,(languages.length?languages:[{language:null}]).map(({language})=>({sort,kind,subjectId,property,operation:'retract',language,evidence})),context);
- });
+interface IncidentEdge extends Record<string, unknown> {
+ id:string;
+ kind:string;
+ fromId:string;
+ toId:string;
 }
-export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
- return await withSpan('graph.vertex.retract',{},async()=>{
- const contract=withAssertionContract(declared);
+
+async function readIncidentEdges(executor:SqlExecutor,subjects:readonly string[],context:number):Promise<IncidentEdge[]>{
+ return (await withSpan('graph.write.incidentEdges',{'db.system':'postgres'},()=>executor.query<IncidentEdge>(`WITH incident AS MATERIALIZED (
+   SELECT DISTINCT e.id,e.entity_id,e.from_node,e.to_node
+   FROM unnest($1::bigint[]) targets(id)
+   CROSS JOIN LATERAL (
+    SELECT id,entity_id,from_node,to_node FROM edge WHERE from_node=targets.id
+    UNION ALL
+    SELECT id,entity_id,from_node,to_node FROM edge WHERE to_node=targets.id
+   ) e
+   WHERE EXISTS(SELECT 1 FROM assertion_edge_subject s WHERE s.edge_id=e.id OFFSET 0)
+  ), kinds AS MATERIALIZED (
+   SELECT entity.name,array_agg(incident.id) AS ids FROM incident JOIN entity ON entity.id=incident.entity_id GROUP BY entity.name
+  ), active AS MATERIALIZED (
+   SELECT kinds.name,selected.id FROM kinds
+   CROSS JOIN LATERAL graph_edge_active_ids_batch(kinds.name,$2::bigint,kinds.ids,NULL::timestamptz,NULL::bigint) selected(id)
+  )
+  SELECT incident.id::text,active.name AS kind,from_node::text AS "fromId",to_node::text AS "toId"
+  FROM active JOIN incident USING(id) ORDER BY incident.id`,[subjects,context]))).rows;
+}
+
+/** Enumerate the bound source's streams before the common assertion admission. */
+async function retractStreams(executor:SqlExecutor,contract:GraphContract,inputs:AssertionInput[],context:number):Promise<void>{
+ if(inputs.length===0)return;
+ const {sourceUid}=requireWriteCapability(executor);
+ const result=await withSpan('graph.write.retractionLanguages',{'db.system':'postgres'},()=>executor.query<{ord:number;language:string|null}>(`WITH wanted AS MATERIALIZED (
+   SELECT (ord-1)::int AS ord,(draft->>'subjectId')::bigint AS subject,draft->>'sort' AS sort,draft->>'property' AS property
+   FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY r(draft,ord)
+  ), subjects AS MATERIALIZED (
+   SELECT DISTINCT sort,subject FROM wanted
+  ), attached AS MATERIALIZED (
+   SELECT w.sort,w.subject,s.assertion_id FROM subjects w
+   CROSS JOIN LATERAL (SELECT id FROM edge WHERE to_node=w.subject AND entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0) e
+   CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_vertex_subject WHERE subject_edge_id=e.id OFFSET 0) s
+   WHERE w.sort='vertex'
+   UNION ALL
+   SELECT w.sort,w.subject,s.assertion_id FROM subjects w
+   CROSS JOIN LATERAL (SELECT assertion_id FROM assertion_edge_subject WHERE edge_id=w.subject OFFSET 0) s
+   WHERE w.sort='edge'
+  ), streams AS MATERIALIZED (
+   SELECT x.sort,x.subject,a.property,a.language FROM attached x
+   CROSS JOIN LATERAL (SELECT language,property,context_id FROM assertion WHERE assertion_id=x.assertion_id OFFSET 0) a
+   CROSS JOIN LATERAL (SELECT entity_id,to_node FROM edge WHERE from_node=x.assertion_id OFFSET 0) source
+   WHERE a.context_id=$3::bigint
+     AND source.entity_id=(SELECT id FROM entity WHERE name='system.assertion-source')
+     AND source.to_node=(SELECT id FROM node WHERE uid=$2::uuid)
+  )
+  SELECT DISTINCT w.ord,s.language COLLATE "C" AS language FROM wanted w JOIN streams s USING(sort,subject,property)
+  ORDER BY w.ord,language NULLS FIRST`,
+    [JSON.stringify(inputs.map(({sort,subjectId,property})=>({sort,subjectId,property}))),sourceUid,context]));
+ const languages=new Map<number,(string|null)[]>();
+ for(const {ord,language} of result.rows){
+  const stream=languages.get(ord)??[];
+  stream.push(language);
+  languages.set(ord,stream);
+ }
+ await admitAssertionInputs(executor,contract,inputs.flatMap((input,index)=>
+  (languages.get(index)??[null]).map(language=>({...input,language}))),context);
+}
+
+function vertexRetractions(contract:GraphContract,kindName:string,id:string,evidence:readonly EvidenceDraft[]|undefined):AssertionInput[]{
+ const kind=contract.vertex.find(vertex=>vertex.name===kindName)!;
+ const properties=kind.fields.filter(field=>!kind.key.includes(field.name)).map(field=>field.name);
+ return [...properties,'$exists'].map(property=>({sort:'vertex',kind:kindName,subjectId:id,property,operation:'retract',evidence}));
+}
+
+function edgeRetractions(contract:GraphContract,kind:string,id:string,evidence:readonly EvidenceDraft[]|undefined):AssertionInput[]{
+ const properties=contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[];
+ return [...properties,'$exists'].map(property=>({sort:'edge',kind,subjectId:id,property,operation:'retract',evidence}));
+}
+
+function childRoles(contract:GraphContract){
+ return contract.vertex.flatMap(kind=>(kind.keyEdges??[]).map(role=>({kind:kind.name,role})));
+}
+function hasChildEdge(incident:readonly IncidentEdge[],id:string,role:NonNullable<VertexContract['keyEdges']>[number]):boolean{
+ return incident.some(edge=>edge.kind===role.edge&&(role.direction==='from'?edge.toId:edge.fromId)===id);
+}
+
+interface RetirementEffects {
+ vertices:Set<string>;
+ edges:Set<string>;
+}
+
+async function retireVertex(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,kind:string,id:string,context:number,
+ evidence:readonly EvidenceDraft[]|undefined,visited:Set<string>,effects:RetirementEffects,knownIncident?:readonly IncidentEdge[]):Promise<void>{
+ if(visited.has(id))return;
+ visited.add(id);
+ const roles=childRoles(contract);
+ // A role can only select children through an active incident edge. Recheck its children
+ // in declaration order because an earlier cascade can retire a later role's children.
+ const before=knownIncident??(roles.length?await readIncidentEdges(executor,[id],context):[]);
+ let cascaded=false;
+ for(const {kind:childKind,role} of roles){
+  if(!hasChildEdge(before,id,role))continue;
+  const childEnd=role.direction==='from'?'from_node':'to_node';
+  const parentEnd=role.direction==='from'?'to_node':'from_node';
+  const children=(await withSpan('graph.write.retirementChildren',{'db.system':'postgres'},()=>executor.query<{id:string}>(`SELECT child.id::text AS id
+    FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node child ON child.id=e.${childEnd} JOIN entity ck ON ck.id=child.entity_id
+    WHERE ek.name=$1 AND e.${parentEnd}=$2::bigint AND ck.name=$3
+      AND graph_edge_active(e.id,ek.name,$4::bigint) AND graph_vertex_active(child.id,ck.name,$4::bigint)
+    ORDER BY e.id`,[role.edge,id,childKind,context]))).rows;
+  if(children.length&&role.onDelete==='restrict')throw new Error(`${WHERE}:199: PARENT_DELETE_RESTRICTED ${childKind}.${role.role}`);
+  for(const child of children){
+   await retireVertex(executor,contract,binding,childKind,child.id,context,evidence,visited,effects);
+   cascaded=true;
+  }
+ }
+ permitted(binding,kind,'$exists',true);
+ const incident=cascaded||(knownIncident===undefined&&roles.length===0)?await readIncidentEdges(executor,[id],context):before;
+ const edgeInputs=incident.map(edge=>edgeRetractions(contract,edge.kind,edge.id,evidence));
+ const vertexInputs=vertexRetractions(contract,kind,id,evidence);
+ if(binding.scope===binding.productUid){
+  await retractStreams(executor,contract,[...edgeInputs.flat(),...vertexInputs],context);
+ }else{
+  // A withdrawn key edge can remove the scope that authorized a subsequent input.
+  for(const inputs of edgeInputs)await retractStreams(executor,contract,inputs,context);
+  await retractStreams(executor,contract,vertexInputs,context);
+ }
+ effects.vertices.add(id);
+ for(const edge of incident)effects.edges.add(edge.id);
+}
+
+async function removeSingleEntity(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,draft:VertexRemovalDraft,context:number):Promise<void>{
  if(draft.withdrawAll)throw new Error(`${WHERE}:190: GLOBAL_REMOVAL_REQUIRES_AUTHORIZED_OPERATION`);
  const subject=await endpoint(executor,contract,draft,context);
- const retire=async(kindName:string,id:string,visited:Set<string>):Promise<void>=>{
-  if(visited.has(id))return;visited.add(id);
-  for(const childKind of contract.vertex)for(const role of childKind.keyEdges??[]){
-    const children=(await executor.query<{id:string}>(`SELECT child.id::text AS id FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node child ON child.id=e.${role.direction==='from'?'from':'to'}_node JOIN entity ck ON ck.id=child.entity_id WHERE ek.name=$1 AND e.${role.direction==='from'?'to':'from'}_node=$2::bigint AND ck.name=$3 AND graph_edge_active(e.id,ek.name,$4::bigint) AND graph_vertex_active(child.id,ck.name,$4::bigint)`,[role.edge,id,childKind.name,context])).rows;
-   if(children.length&&role.onDelete==='restrict')throw new Error(`${WHERE}:199: PARENT_DELETE_RESTRICTED ${childKind.name}.${role.role}`);
-   for(const child of children)await retire(childKind.name,child.id,visited);
+ if(draft.selectedFields!==undefined){
+  for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract',evidence:draft.evidence},context);
+ }else{
+  await retireVertex(executor,contract,binding,draft.kind,subject.id,context,draft.evidence,new Set(),{vertices:new Set(),edges:new Set()});
+ }
+}
+
+/** Batch adjacent drafts whose vertex and incident edges can be retired from the same graph state. */
+async function removeIndependentEntities(executor:SqlExecutor,contract:GraphContract,binding:WriteCapability,drafts:readonly VertexRemovalDraft[],context:number):Promise<void>{
+ const endpoints=await readEndpoints(executor,contract,drafts,context);
+ const subjects=new Set(endpoints.flatMap(endpoint=>'error' in endpoint?[]:[endpoint.id]));
+ const adjacent=new Map<string,IncidentEdge[]>();
+ for(const edge of await readIncidentEdges(executor,[...subjects],context)){
+  for(const id of new Set([edge.fromId,edge.toId])){
+   if(!subjects.has(id))continue;
+   const incident=adjacent.get(id)??[];
+   incident.push(edge);
+   adjacent.set(id,incident);
   }
-  permitted(requireWriteCapability(executor),kindName,'$exists',true);
-  const incident=(await executor.query<{id:string;kind:string}>(`SELECT e.id::text AS id,k.name AS kind FROM edge e JOIN entity k ON k.id=e.entity_id WHERE (e.from_node=$1::bigint OR e.to_node=$1::bigint) AND graph_edge_active(e.id,k.name,$2::bigint)`,[id,context])).rows;
-  for(const edge of incident)await withdrawEdge(executor,contract,edge.kind,edge.id,'',undefined,context,draft.evidence);
-  const retiredKind=contract.vertex.find(vertex=>vertex.name===kindName)!;
-  for(const property of [...retiredKind.fields.filter(field=>!retiredKind.key.includes(field.name)).map(field=>field.name),'$exists'])await retractPropertyStreams(executor,contract,'vertex',kindName,id,property,context,draft.evidence);
+ }
+ const roles=childRoles(contract);
+ const changed:RetirementEffects={vertices:new Set(),edges:new Set()};
+ const vertices=new Set<string>(), edges=new Set<string>();
+ const inputs:AssertionInput[]=[];
+ const flush=async()=>{
+  if(inputs.length===0)return;
+  await retractStreams(executor,contract,inputs,context);
+  for(const id of vertices)changed.vertices.add(id);
+  for(const id of edges)changed.edges.add(id);
+  inputs.length=0;
+  vertices.clear();
+  edges.clear();
  };
- if(draft.selectedFields!==undefined){for(const property of draft.selectedFields)await writeAssertion(executor,contract,{sort:'vertex',kind:draft.kind,subjectId:subject.id,property,operation:'retract',evidence:draft.evidence},context);}
- else await retire(draft.kind,subject.id,new Set());
- return true;
+ for(const [index,found] of endpoints.entries()){
+  const draft=drafts[index]!;
+  if('error' in found){await flush();throw found.error;}
+  const {id,kind}=found;
+  let incident=adjacent.get(id)??[];
+  if(vertices.has(id)||incident.some(edge=>edges.has(edge.id)))await flush();
+  if(!found.active||changed.vertices.has(id)){
+   await flush();
+   await endpoint(executor,contract,draft,context);
+  }
+  if(incident.some(edge=>changed.edges.has(edge.id)))incident=await readIncidentEdges(executor,[id],context);
+  if(roles.some(({role})=>hasChildEdge(incident,id,role))){
+   await flush();
+   await retireVertex(executor,contract,binding,kind,id,context,draft.evidence,new Set(),changed,incident);
+   continue;
+  }
+  try { permitted(binding,kind,'$exists',true); } catch(error) { await flush(); throw error; }
+  for(const edge of incident){
+   inputs.push(...edgeRetractions(contract,edge.kind,edge.id,draft.evidence));
+   edges.add(edge.id);
+  }
+  inputs.push(...vertexRetractions(contract,kind,id,draft.evidence));
+  vertices.add(id);
+ }
+ await flush();
+}
+
+async function removeEntities(executor:SqlExecutor,contract:GraphContract,drafts:readonly VertexRemovalDraft[],context:number):Promise<number>{
+ const binding=requireWriteCapability(executor);
+ let start=0;
+ for(const [index,draft] of drafts.entries()){
+  if(binding.scope===binding.productUid&&!draft.withdrawAll&&draft.selectedFields===undefined)continue;
+  if(start<index)await removeIndependentEntities(executor,contract,binding,drafts.slice(start,index),context);
+  await removeSingleEntity(executor,contract,binding,draft,context);
+  start=index+1;
+ }
+ if(start<drafts.length)await removeIndependentEntities(executor,contract,binding,drafts.slice(start),context);
+ return drafts.length;
+}
+
+export async function removeEntity(executor:SqlExecutor,declared:GraphContract,draft:VertexRemovalDraft,context=1):Promise<boolean>{
+ return await withSpan('graph.vertex.retract',{},async()=>{
+  const {contract,version}=preparePublicationContract(declared);
+  const binding=requireWriteCapability(executor);
+  checkBindingRevision(binding,version,context);
+  await acquireGraphWriteLock(executor);
+  await removeSingleEntity(executor,contract,binding,draft,context);
+  return true;
  });
 }
-export async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,_producer:string,_journal?:unknown,context=1,evidence?:readonly EvidenceDraft[]):Promise<boolean>{
- for(const property of [ ...(contract.edge.find(edge=>edge.name===kind)?.fields.map(field=>field.name)??[]),'$exists'])await retractPropertyStreams(executor,contract,'edge',kind,edgeId,property,context,evidence);return true;
+
+async function withdrawEdge(executor:SqlExecutor,contract:GraphContract,kind:string,edgeId:string,context:number,evidence?:readonly EvidenceDraft[]):Promise<boolean>{
+ await retractStreams(executor,contract,edgeRetractions(contract,kind,edgeId,evidence),context);
+ return true;
 }
