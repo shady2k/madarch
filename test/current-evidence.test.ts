@@ -49,7 +49,7 @@ test('the Problems collector counts a current evidence dismissal after the rule 
   const manifest: KindsManifest = {
     file: '/fixture/madarch/catalog.yaml', roles: new Map(), properties: new Map(), groups: new Map(),
     kinds: new Map(contract.vertex.map(kind => [kind.name, { ...kind, source: 'graph' as const, title: kind.key[0]!, relations: [], line: 1 }])),
-    excludeDocuments: [], ignoreBlocks: [], findings: [], declaredTemplates: [],
+    excludeDocuments: [], ignoreBlocks: [], findings: [],
     semanticBindings: new Map([['problem-task', {
       kind: 'fixture.task', line: 1, fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' },
       edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } },
