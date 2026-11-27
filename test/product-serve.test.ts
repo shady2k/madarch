@@ -608,6 +608,28 @@ describe('madarch serve: an existing product served', () => {
     expect(run.stderr).toMatch(/line \d/);
   });
 
+  test('a malformed kind file is refused naming its relative file, line and reason, without a runtime stack', () => {
+    const base = scratchFolder();
+    const folder = join(base, 'broken-kinds');
+    mkdirSync(join(folder, 'madarch/kinds/fixture/fixture'), { recursive: true });
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: broken-kinds\nname: Broken kinds\n');
+    writeFileSync(join(folder, 'madarch/catalog.yaml'), 'groups:\n  fixture:\n    en: Fixture\n    ru: Пример\n  fixture.fixture:\n    en: Fixture\n    ru: Пример\n    parent: fixture\n');
+    // One fault per kind file, the way the O1 acceptance met them.
+    writeFileSync(join(folder, 'madarch/kinds/fixture/fixture/broken.one.yaml'), 'source: nonsense\nfolder: docs/one\nkey: [slug]\nfields:\n  - { name: slug, type: text }\n');
+    writeFileSync(join(folder, 'madarch/kinds/fixture/fixture/broken.two.yaml'), 'source: markdown\nfolder: docs/two\ntemplate-policy: nope\nkey: [slug]\nfields:\n  - { name: slug, type: text }\n');
+    const run = runCommand(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: base }, base);
+    // A manifest that cannot be used is the command's refusal (2), reported whole on standard error.
+    expect(run.status).toBe(2);
+    const lines = run.stderr.split('\n');
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.one.yaml:1: kind "broken.one": "source" is "graph", "markdown" or "document", got "nonsense"');
+    expect(lines).toContain('madarch/kinds/fixture/fixture/broken.two.yaml:3: kind "broken.two": "template-policy" is a field of the entity catalog, and the manifest declares no "catalog"');
+    // The refusal is the diagnostic's own: no machine path, no compiled source excerpt, no runtime stack.
+    expect(run.stderr).not.toContain(folder);
+    expect(run.stderr).not.toContain('$bunfs');
+    expect(run.stderr).not.toMatch(/^ +at /m);
+    expect(run.stderr).not.toContain('Bun v');
+  });
+
   test('a builder that cannot be launched names the cause, not just exit null', () => {
     const base = scratchFolder();
     const app = join(base, 'app-folder-never-created');
