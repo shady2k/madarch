@@ -572,6 +572,15 @@ const searchString = (params: Record<string, string | undefined>): string => {
   return search.size === 0 ? '' : `?${search.toString()}`;
 };
 
+/**
+ * The kinds a run's plan is asked for: the press the run was made with (`selected`), never the resolved order the engine
+ * keeps with it. The order adds the internal prerequisites a run needs (`system.product`), which the product's manifest
+ * declares nowhere, so a plan asked for the order is refused — and the page is left without the plan's words
+ * (madarch-blko). A run that recorded no press falls back to its order.
+ */
+export const planKindsOf = (run: Pick<FillRunDetail, 'selected' | 'order'> | null | undefined): readonly string[] =>
+  run === null || run === undefined ? [] : run.selected !== null && run.selected.length > 0 ? run.selected : run.order ?? [];
+
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
 export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });

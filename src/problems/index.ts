@@ -57,6 +57,20 @@ function problemOf(draft: ProblemDraft): Problem {
   };
 }
 
+/**
+ * A note's words as a reader reads them (madarch-blko): a file inside the product is named by its path in the product
+ * (`madarch/catalog.yaml:7583`), never by the folder this machine keeps the product in, which is no reader's word. The
+ * engine composed the note where the product folder was not at hand to shorten it, so the one place that knows both
+ * rewrites it here — the sentence, and the values a language's own words fill.
+ */
+function readerNote(note: ProblemNote, productFolder: string): ProblemNote {
+  const inside = productFolder.endsWith('/') ? productFolder.slice(0, -1) : productFolder;
+  if (inside === '') return note;
+  const shorten = (value: string): string => value.replaceAll(`${inside}/`, '');
+  const args = note.textArgs === undefined ? undefined : Object.fromEntries(Object.entries(note.textArgs).map(([key, value]) => [key, typeof value === 'string' ? shorten(value) : value]));
+  return { message: shorten(note.message), ...(note.textKey === undefined ? {} : { textKey: note.textKey }), ...(args === undefined ? {} : { textArgs: args }) };
+}
+
 async function readEvidenceProblems(input: CollectInput): Promise<{ drafts: ProblemDraft[]; notes: ProblemNote[] }> {
   const drafts: ProblemDraft[] = [];
   const notes: ProblemNote[] = [];
@@ -158,7 +172,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     const task = tasks.get(problem.id);
     return task === undefined ? problem : { ...problem, task: { label: task.title, href: task.href, key: `task:${task.uid}` } };
   });
-  return { ...listing, problems, notes: [...notes, ...listing.notes] };
+  return { ...listing, problems, notes: [...notes, ...listing.notes].map((note) => readerNote(note, input.productFolder)) };
 }
 
 ;

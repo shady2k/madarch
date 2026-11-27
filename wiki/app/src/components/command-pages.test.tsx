@@ -1068,6 +1068,26 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
   }
 });
 
+test('the run page asks its plan for the press, never for the run order with its internal prerequisites', async () => {
+  // The order the engine keeps beside a press holds the internal prerequisites a run needs (`system.product`), which the
+  // product's manifest declares nowhere: a plan asked for that list is refused, and the page loses the plan's words
+  // (madarch-blko). The page asks for the press it was made with, and for nothing the manifest does not declare.
+  runAnswer = { ...RUN, selected: ['demo.alpha'], order: ['system.product', 'demo.alpha'] };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const asked = requests.filter((one) => one.path.endsWith('/api/fill-plan')).map((one) => (one.body as { selected?: readonly string[] }).selected);
+    expect(asked).toEqual([['demo.alpha']]);
+    // What the engine refuses: a kind the product's manifest does not declare (src/knowledge/fill-targets.ts).
+    const undeclared = (asked as (readonly string[])[]).flatMap((kinds) => kinds.filter((kind) => !NAVIGATION.kinds.some((one) => one.kind === kind)));
+    expect(undeclared).toEqual([]);
+    // The page still reads: the line naming the run's kinds is the catalogue's, and the internal prerequisite is not a
+    // kind a reader reads.
+    expect(page.container.querySelector('[data-testid="fill-run-selection"]')?.textContent).toBe('Файлы');
+  } finally {
+    await page.close();
+  }
+});
+
 test('the stop confirmation is disabled while the link is away', async () => {
   const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
   try {
