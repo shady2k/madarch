@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,29 +11,13 @@ import { stopChildWithin } from '../src/product/child-stop.js';
 // The very first statement: a walk that never gets further says so, and CI shows this line or none at all.
 process.stderr.write('walk: start\n');
 
-/**
- * Ends a child this script started, within a bound — its own copy, so a walk loads nothing of madarch's runtime: a
- * module graph of the product (a PostgreSQL client, a library call) has no place in a script that only drives commands.
- */
-async function stopChildWithin(child: { readonly pid: number | undefined; kill(signal?: NodeJS.Signals | number): unknown; readonly exited: Promise<unknown> }, options: { readonly what: string; readonly graceMs?: number; readonly killWaitMs?: number }): Promise<'ended' | 'killed' | 'stuck'> {
-  const graceMs = options.graceMs ?? 30_000;
-  const killWaitMs = options.killWaitMs ?? 10_000;
-  const within = async (work: Promise<unknown>, ms: number): Promise<boolean> =>
-    await Promise.race([work.then(() => true, () => true), new Promise<boolean>((answer) => { const timer = setTimeout(() => answer(false), ms); (timer as unknown as { unref?: () => void }).unref?.(); })]);
-  try { child.kill('SIGTERM'); } catch { /* gone between the check and the signal */ }
-  if (await within(child.exited, graceMs)) return 'ended';
-  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(graceMs)} ms of SIGTERM, so it is killed\n`);
-  try { child.kill('SIGKILL'); } catch { /* gone */ }
-  if (await within(child.exited, killWaitMs)) return 'killed';
-  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(killWaitMs)} ms of SIGKILL: something of it still holds the walk's output open\n`);
-  return 'stuck';
-}
-
-interface Options { binary: string; os: string; arch: string }
+interface Options { binary: string; os: string; arch: string; cleanStart: boolean; browser: boolean }
 function args(argv: string[]): Options {
-  const result: Options = { binary: '', os: process.platform, arch: process.arch };
+  const result: Options = { binary: '', os: process.platform, arch: process.arch, cleanStart: false, browser: false };
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i];
+    if (key === '--clean-start') { result.cleanStart = true; continue; }
+    if (key === '--browser') { result.browser = true; continue; }
     if (key === '--binary' || key === '--os' || key === '--arch') {
       const value = argv[++i] ?? '';
       if (key === '--binary') result.binary = value;
@@ -44,6 +28,9 @@ function args(argv: string[]): Options {
     throw new Error(`unknown option ${key}`);
   }
   if (!result.binary) throw new Error('give --binary <built release binary>');
+  if (result.browser && (!result.cleanStart || result.os !== 'linux' || process.platform !== 'linux')) {
+    throw new Error('--browser requires --clean-start on Linux');
+  }
   return result;
 }
 const options = args(process.argv.slice(2));
@@ -63,6 +50,7 @@ const shellParameters = (parameters: string[]): string[] => process.platform ===
  * its whole process tree ended and printed, so a stuck command names itself instead of holding the job for an hour.
  */
 const STEP_TIMEOUT_MS = 240_000;
+const STATUS_TIMEOUT_MS = 60_000;
 
 /** The processes of one pid's tree, for a step that ran past its bound: pid, parent and command line. */
 function treeOf(pid: number): string {
@@ -197,6 +185,91 @@ async function verifyWindowsProcessOwnership(): Promise<void> {
   }
 }
 
+async function checkCleanStartBrowser(base: string): Promise<void> {
+  const { resolveBrowserExecutable } = await import('./chromium.js');
+  const { default: puppeteer } = await import('puppeteer');
+  const browser = await puppeteer.launch({
+    executablePath: resolveBrowserExecutable(), headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'], defaultViewport: { width: 1440, height: 1100 },
+  });
+  try {
+    const page = await browser.newPage();
+    const problems: string[] = [];
+    const origin = new URL(base).origin;
+    page.on('console', (message) => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
+    page.on('pageerror', (error) => problems.push(`pageerror: ${String(error)}`));
+    page.on('response', (response) => {
+      if (response.status() >= 400 && new URL(response.url()).origin === origin) problems.push(`HTTP ${response.status()}: ${response.url()}`);
+    });
+    try {
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('[data-testid="first-run"]');
+      // The change stream stays open while the page's startup reads finish.
+      await page.waitForNetworkIdle({ concurrency: 1 });
+      const skipRole = '[data-testid="role-first-skip"]';
+      if (await page.$(skipRole) !== null) {
+        await page.click(skipRole);
+        await page.waitForSelector(skipRole, { hidden: true });
+        await page.waitForNetworkIdle({ concurrency: 1 });
+      }
+      const html = await page.evaluate(() => document.documentElement.outerHTML);
+      if (html.includes('/$bunfs/') || html.includes('~BUN')) problems.push('engine bundle location in the rendered page');
+    } catch (error) {
+      problems.push(String(error));
+    } finally {
+      const folder = process.env.RUNNER_TEMP ?? mkdtempSync(join(tmpdir(), 'madarch clean start screenshot-'));
+      const screenshot = join(folder, 'clean-start-home.png');
+      await page.screenshot({ path: screenshot });
+      console.log(`Clean start screenshot: ${screenshot}`);
+    }
+    if (problems.length > 0) throw new Error(`${base} failed the Chromium clean start checks:\n${problems.join('\n')}`);
+    console.log('Chromium clean start: zero console errors, page errors or product HTTP errors, and no bundle paths in the DOM');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function checkCleanStartApi(base: string): Promise<void> {
+  const jsonHeaders = { 'content-type': 'application/json' };
+  const read = async (path: string, init?: RequestInit): Promise<string> => {
+    const response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(STATUS_TIMEOUT_MS), ...init });
+    const body = await response.text();
+    if (response.status !== 200) throw new Error(`${init?.method ?? 'GET'} ${response.url} answered HTTP ${response.status}: ${body}`);
+    return body;
+  };
+  const graphql = new URL('graphql', base);
+  const until = Date.now() + STATUS_TIMEOUT_MS;
+  let navigation: { data?: { navigation?: { kinds?: { kind: string }[] } }; errors?: unknown };
+  for (;;) {
+    const response = await fetch(graphql, {
+      method: 'POST', headers: jsonHeaders, body: JSON.stringify({ query: '{ navigation { kinds { kind } } }' }),
+      signal: AbortSignal.timeout(Math.max(1, until - Date.now())),
+    });
+    const body = await response.text();
+    if (response.status === 200) { navigation = JSON.parse(body) as typeof navigation; break; }
+    if (response.status !== 503 || !response.headers.has('retry-after') || Date.now() >= until) {
+      throw new Error(`POST ${graphql} did not return navigation after publication (HTTP ${response.status}): ${body}`);
+    }
+    await new Promise((done) => setTimeout(done, 250));
+  }
+  const kinds = navigation.data?.navigation?.kinds;
+  if (navigation.errors !== undefined || !Array.isArray(kinds) || kinds.length === 0
+    || !kinds.every((entry) => typeof entry?.kind === 'string' && entry.kind !== '')) {
+    throw new Error(`POST ${graphql} returned no usable navigation kinds: ${JSON.stringify(navigation.errors ?? navigation.data)}`);
+  }
+  if (!(await read('')).includes('<div id="root"')) throw new Error(`GET ${base} did not return the wiki app shell`);
+  const selected = kinds.map(({ kind }) => kind);
+  for (const pluginsOnly of [false, true]) {
+    await read('api/fill-plan', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ selected, pluginsOnly }) });
+  }
+  const count = JSON.parse(await read('api/problems?count=1')) as { open?: number };
+  const listing = JSON.parse(await read('api/problems')) as { problems?: unknown[] };
+  if (count.open !== 0 || !Array.isArray(listing.problems) || listing.problems.length !== 0) {
+    throw new Error(`GET ${base}api/problems: expected zero problems, got open=${String(count.open)}, listed=${String(listing.problems?.length)}`);
+  }
+  console.log(`Clean start API: wiki shell, both fill-plan modes for ${selected.length} navigation kinds, and zero problems`);
+}
+
 async function serveCheck(): Promise<void> {
   /** Runs one `npx madarch` command to its end, the way a person does, and answers what it printed. */
   const runMadarch = async (command: string, extra: string[]): Promise<{ status: number; stdout: string; stderr: string }> =>
@@ -214,12 +287,12 @@ async function serveCheck(): Promise<void> {
     return false;
   };
   /** Stops the home's server the way the command says, and proves no server is left. */
-  const stopServer = async (): Promise<void> => {
-    const stopped = await runMadarch('stop', ['--home', home]);
+  const stopServer = async (productsHome = home): Promise<void> => {
+    const stopped = await runMadarch('stop', ['--home', productsHome]);
     // The stop names on stderr why it failed: the walk's own message carries those words, since the CI summary shows
     // the error and not the commands' output.
     if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})${stopped.stderr.trim() === '' ? '' : `: ${stopped.stderr.trim()}`}`);
-    const status = await runMadarch('status', ['--home', home]);
+    const status = await runMadarch('status', ['--home', productsHome]);
     if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
   };
   /**
@@ -289,7 +362,7 @@ async function serveCheck(): Promise<void> {
       catch (error) { return `\n${path}:1: cannot read log: ${String(error)}`; }
     }).join('\n');
   };
-  const checkForegroundServe = async (product: string, manifest: 'not-filled' | 'ok'): Promise<void> => {
+  const checkForegroundServe = async (product: string, manifest: 'not-filled' | 'ok', verifyCleanStart = false): Promise<void> => {
     const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
     // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
     const closed = new Promise<void>((done, reject) => { server.once('close', () => done()); server.once('error', reject); });
@@ -327,7 +400,7 @@ async function serveCheck(): Promise<void> {
     // this loop waits past both, so serve's refusal — with the reason the last connection gave and the store's log — is
     // what the job reports, not this script's "printed no address". The loop ends at once when serve exits, and its own
     // words are then the ones reported (madarch-64o5.81).
-    const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 230_000);
+    const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 230_000 + (verifyCleanStart ? STATUS_TIMEOUT_MS : 0));
     try {
       // The address is the one the command prints once it stands.
       let address: string | undefined;
@@ -343,8 +416,36 @@ async function serveCheck(): Promise<void> {
       const response = await fetch(`${base}api/status`);
       const state = await response.json() as { manifest?: string };
       if (!response.ok || state.manifest !== manifest) throw new Error(`${product}/madarch/catalog.yaml:1: foreground serve read ${String(state.manifest)} instead of ${manifest} (HTTP ${response.status})`);
+      if (verifyCleanStart) {
+        await checkCleanStartApi(base);
+        if (options.browser) await checkCleanStartBrowser(base);
+      }
     } finally { clearTimeout(serveTimeout); await finish(); }
   };
+  if (options.cleanStart) {
+    const cleanHome = join(work, 'clean-start', 'products');
+    const repo = join(work, 'clean-start', 'tiny-repo');
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(repo, 'README.md'), '# Example product\n');
+    for (const parameters of [['init', '--initial-branch=main'], ['add', 'README.md'], ['commit', '-m', 'Create example repository']]) {
+      if ((await runStep(`git ${parameters[0]} for clean start`, 'git', parameters, repo, env)).status !== 0) {
+        throw new Error(`${repo}:1: could not prepare the clean start repository`);
+      }
+    }
+    const cleanPort = await freePort();
+    if (cleanPort === 0) throw new Error(`${cleanHome}:1: no free port for clean start`);
+    let folder: string;
+    try {
+      const created = await runMadarch('init', [repo, '--home', cleanHome, '--port', String(cleanPort), '--template', 'everything', '--json', '--no-open']);
+      if (created.status !== 0) throw new Error(`${repo}:1: clean start init failed (exit ${created.status}): ${created.stderr.trim()}`);
+      const facts = JSON.parse(created.stdout.trim().split('\n').at(-1) ?? '') as { folder?: string; reused?: boolean };
+      if (typeof facts.folder !== 'string' || facts.reused !== false) throw new Error(`${repo}:1: clean start init returned no new product folder: ${created.stdout}`);
+      folder = facts.folder;
+    } finally {
+      await stopServer(cleanHome);
+    }
+    await checkForegroundServe(folder, 'not-filled', true);
+  }
   const port = await freePort();
   let failure: Error | undefined;
   let product = '';
@@ -366,7 +467,7 @@ async function serveCheck(): Promise<void> {
     let state: { manifest?: string; manifestFile?: string; fill?: { state?: string } } = {};
     let last = '';
     let answered = 0;
-    const untilStatus = Date.now() + 60_000;
+    const untilStatus = Date.now() + STATUS_TIMEOUT_MS;
     while (Date.now() < untilStatus) {
       const status = await fetch(`${facts.url}api/status`).catch(() => undefined);
       if (status !== undefined) {
