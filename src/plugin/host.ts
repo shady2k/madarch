@@ -25,7 +25,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, PLUGIN_MANIFEST_FILE, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { PluginGraphOwnFactsRequest, type PluginGraphOwnFactsResult, graphReadsOf, PluginOutputPlan, PluginReadResult, PluginFileReadAsk, type PluginReadRequest, PluginFactsApplyRequest, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { PluginGraphOwnFactsRequest, type PluginGraphOwnFactsResult, graphReadsOf, PluginOutputPlan, PluginReadResult, PluginFileReadAsk, type PluginReadRequest, PluginFactsApplyRequest, type PluginPrecondition, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedAssertion, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { capabilityProblem, declarationOf, environmentOf, type PluginEnvironment } from './capabilities.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { closureOptionsFor } from './dependency-store.js';
@@ -187,7 +187,7 @@ export interface PluginHostOptions {
   readonly graph?: GraphAnswerer;
   /** Trusted host binding. The producer names no source, principal or attempt. */
   readonly operations?: {
-    apply(unitId: string, key: string, operation: PluginFactsApplyRequest['operation'], preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[], contractVersion?: string): Promise<unknown>;
+    apply(unitId: string, key: string, operation: PluginFactsApplyRequest['operation'], preconditions?: readonly PluginPrecondition[], contractVersion?: string): Promise<unknown>;
   };
   /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
   readonly agent?: PluginAgentOptions;
@@ -469,7 +469,9 @@ ${text === '' ? '(empty)' : text}` };
         span.setAttribute('madarch.operation.outcome', 'answered');
         return { outcome: 'answered', size };
       } catch (error) {
-        this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:451: operation refused: ${error instanceof Error ? error.message : String(error)}`));
+        // A stale precondition is no failure of the plugin: the cause names it, and the SDK rereads and replans (0039 item 24).
+        const cause = (error as { code?: unknown }).code === 'REVISION_CONFLICT' ? 'REVISION_CONFLICT' : undefined;
+        this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:451: operation refused: ${error instanceof Error ? error.message : String(error)}`, cause === undefined ? undefined : { cause }));
         span.setAttribute('madarch.operation.outcome', 'failed');
         return { outcome: 'failed', size: 0, cause: 'operation-failed' };
       }

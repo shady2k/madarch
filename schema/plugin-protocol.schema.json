@@ -1503,20 +1503,229 @@
               "items": {
                 "type": "object",
                 "required": [
-                  "uid",
-                  "recordedSequence"
+                  "subject"
                 ],
                 "properties": {
-                  "uid": {
-                    "type": "string",
-                    "minLength": 1
+                  "subject": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "sort",
+                          "kind",
+                          "key"
+                        ],
+                        "properties": {
+                          "sort": {
+                            "type": "string",
+                            "const": "vertex"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "key": {
+                            "type": "object",
+                            "patternProperties": {
+                              "^.*$": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "boolean"
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "keyEdges": {
+                            "type": "object",
+                            "patternProperties": {
+                              "^.*$": {
+                                "$defs": {
+                                  "Entity": {
+                                    "type": "object",
+                                    "required": [
+                                      "kind",
+                                      "key"
+                                    ],
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "key": {
+                                        "type": "object",
+                                        "patternProperties": {
+                                          "^.*$": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "number"
+                                              },
+                                              {
+                                                "type": "boolean"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "keyEdges": {
+                                        "type": "object",
+                                        "patternProperties": {
+                                          "^.*$": {
+                                            "$ref": "Entity"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "additionalProperties": false,
+                                    "$id": "Entity"
+                                  }
+                                },
+                                "$ref": "Entity"
+                              }
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "A vertex subject by its kind and natural key."
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "sort",
+                          "kind",
+                          "from",
+                          "to"
+                        ],
+                        "properties": {
+                          "sort": {
+                            "type": "string",
+                            "const": "edge"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "from": {
+                            "$defs": {
+                              "Entity": {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "key"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "key": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "keyEdges": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "$ref": "Entity"
+                                      }
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "$id": "Entity"
+                              }
+                            },
+                            "$ref": "Entity"
+                          },
+                          "to": {
+                            "$defs": {
+                              "Entity": {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "key"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "key": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "keyEdges": {
+                                    "type": "object",
+                                    "patternProperties": {
+                                      "^.*$": {
+                                        "$ref": "Entity"
+                                      }
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "$id": "Entity"
+                              }
+                            },
+                            "$ref": "Entity"
+                          },
+                          "discriminator": {
+                            "type": "string",
+                            "description": "What tells repeats between the same ends apart; an empty string where the kind does not repeat."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "An edge subject by its kind and ends."
+                      }
+                    ],
+                    "description": "One subject of a graph read: a vertex by kind and key, or an edge by kind and ends."
                   },
                   "recordedSequence": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "^[0-9]+$",
+                    "description": "The last recorded sequence of this source's stream for the subject the operation was decided from; absent, the source has never asserted the subject."
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "The subject an operation touches and the sequence its read saw."
               }
             },
             "contractVersion": {

@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {CommittedLookups,TransactionLookups} from './immutable-lookups.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { withSpan } from '../obs/trace.js';
-import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract, type VertexContract } from './contract.js';
+import { endpointKindNames, assertionValueTableName, graphContractVersion, type GraphContract, type EntityRefDraft, type KeyValueDraft, type VertexDraft, type VertexRemovalDraft, type EdgeDraft, type EdgeRemovalDraft, type EvidenceDraft, type FieldContract, type VertexContract } from './contract.js';
 import { withAssertionContract } from './system-contract.js';
 import { keyUid, newUid } from './uid.js';
 import {validateEvidenceLocator} from './evidence-locator.js';
@@ -276,6 +276,25 @@ async function ensureCheckedVertex(executor:SqlExecutor,prepared:PreparedContrac
  return made;
  });
 }
+/**
+ * One subject an operation's preconditions name (0039 item 24): a vertex by kind and natural key, or an edge by kind and
+ * ends. The plugin addresses subjects this way and never by uid (0035, item 3), and the writer derives the uid the graph
+ * holds from the identity alone.
+ */
+export type WriteSubject =
+  | { readonly sort: 'vertex'; readonly kind: string; readonly key: Readonly<Record<string, KeyValueDraft>>; readonly keyEdges?: Readonly<Record<string, EntityRefDraft>> }
+  | { readonly sort: 'edge'; readonly kind: string; readonly from: EntityRefDraft; readonly to: EntityRefDraft; readonly discriminator?: string };
+
+/** The uid the graph derives for a subject, whether or not it holds it yet: identity is the name, never a created id. */
+export async function subjectUid(executor:SqlExecutor,declared:GraphContract,subject:WriteSubject,context=1):Promise<string>{
+ return await withSpan('graph.subject.uid',{'graph.kind':subject.kind},async()=>{
+  const {contract}=preparePublicationContract(declared);
+  const refUidOf=async(ref:EntityRefDraft):Promise<string>=>await refUid(executor,contract,ref,context);
+  if(subject.sort==='vertex')return await refUidOf({kind:subject.kind,key:subject.key,...(subject.keyEdges===undefined?{}:{keyEdges:subject.keyEdges})});
+  return edgeUid(subject.kind,await refUidOf(subject.from),await refUidOf(subject.to),subject.discriminator??'');
+ });
+}
+
 /** A trusted host births its lineage trio only after all three identities can be named. */
 function edgeUid(kind:string,fromUid:string,toUid:string,discriminator:string):string{return keyUid(keyUid('madarch.catalogue.kind',[kind]),[fromUid,toUid,discriminator]);}
 async function putEdge(executor:SqlExecutor,kind:string,from:string,to:string,discriminator:string,context:number):Promise<string>{

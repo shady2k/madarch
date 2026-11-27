@@ -184,7 +184,35 @@ test('batched producer facts are byte-identical to the old reader for key edges,
     expect(expected.edges).toHaveLength(5);
     expect(expected.vertices.every(vertex => vertex.keyEdges?.repository?.kind === 'code.repository' && vertex.evidence?.commit === 'fixture-commit')).toBe(true);
     const actual = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-link', 'code.file-repository']);
-    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+    const { revisions: _revisions, ...held } = actual;
+    expect(JSON.stringify(held)).toBe(JSON.stringify(expected));
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('own facts name every covered subject\u2019s stream position, a retracted subject and its key edge included', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: partitionContract });
+  try {
+    await publishFiles(owner, ['src/a.ts', 'src/b.ts']);
+    const before = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], []);
+    const vertexSubjects = before.revisions.filter(revision => revision.subject.sort === 'vertex');
+    expect(vertexSubjects.map(revision => revision.subject.sort === 'vertex' ? revision.subject.key['path'] : undefined).sort()).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(vertexSubjects.every(revision => revision.subject.sort === 'vertex' && revision.subject.keyEdges?.['repository']?.kind === 'code.repository' && /^[0-9]+$/u.test(revision.recordedSequence))).toBe(true);
+    const sequenceOf = (path: string): string => before.revisions.find(revision => revision.subject.sort === 'vertex' && revision.subject.key['path'] === path)!.recordedSequence;
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, partitionContract);
+      await publishGraphDrafts(tx, partitionContract, { vertices: [], removals: [{ ...fileRef('src/b.ts'), producer: 'reader' }] }, 1);
+    });
+    const after = await producerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], []);
+    expect(after.vertices.map(vertex => vertex.key['path'])).toEqual(['src/a.ts']);
+    // A withdrawn subject stays in the stream: its key edge was retracted with it, so the parent role is read from the
+    // rows the graph holds, never from an active assertion.
+    const withdrawn = after.revisions.find(revision => revision.subject.sort === 'vertex' && revision.subject.key['path'] === 'src/b.ts');
+    expect(withdrawn).toBeDefined();
+    expect(withdrawn!.subject).toEqual({ sort: 'vertex', kind: 'code.file', key: { path: 'src/b.ts' }, keyEdges: { repository: { kind: 'code.repository', key: { name: 'fixture' } } } });
+    expect(BigInt(withdrawn!.recordedSequence) > BigInt(sequenceOf('src/b.ts'))).toBe(true);
+    expect(sequenceOf('src/a.ts')).toBe(after.revisions.find(revision => revision.subject.sort === 'vertex' && revision.subject.key['path'] === 'src/a.ts')!.recordedSequence);
+    // A subject this source never asserted is named by no revision at all: a batch states that absence itself.
+    expect(after.revisions.some(revision => revision.subject.sort === 'vertex' && revision.subject.key['path'] === 'src/never.ts')).toBe(false);
   } finally { await owner.close(); }
 }, 30_000);
 
@@ -228,6 +256,6 @@ test('producer facts filter partition keys and evidence paths before returning o
     expect(paths.vertices.map(vertex => vertex.key)).toEqual([{ path: 'src/c.ts' }]);
     expect(paths.edges.map(edge => edge.from.key)).toEqual([{ path: 'src/c.ts' }]);
     const empty = await scopedProducerFacts(owner, partitionContract, TEST_SOURCE_UID, ['code.file'], ['code.file-repository'], { kind: 'code.file', ownedEdges: [{ kind: 'code.file-repository', from: 'code.file', to: 'code.repository' }], keys: [] });
-    expect(empty).toEqual({ vertices: [], edges: [] });
+    expect(empty).toEqual({ vertices: [], edges: [], revisions: [] });
   } finally { await owner.close(); }
 }, 30_000);

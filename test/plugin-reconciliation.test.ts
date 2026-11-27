@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { reconcileFacts, type EdgeResult, type VertexResult } from '../src/plugin-sdk.js';
+import { batchPreconditions, reconcileFacts, type EdgeResult, type VertexResult } from '../src/plugin-sdk.js';
 
 const scope = { repository: 'fixture', commit: 'current', parent: { kind: 'code.repository', key: { name: 'fixture' } } };
 const vertex = (name: string, value: unknown): VertexResult => ({ kind: 'item', key: { name }, keyEdges: { repository: { kind: 'code.repository', key: { name: 'fixture' } } }, values: { value }, evidence: { target: { kind: 'blob', key: { digest: 'retained' } } } });
@@ -61,5 +61,34 @@ describe('shared plugin reconciliation (0039 items 18 and 26)', () => {
 
   test('duplicate identities fail rather than silently shrinking the source', () => {
     expect(() => reconcileFacts({ vertices: [vertex('same', 1), vertex('same', 2)], end: { state: 'complete' } }, { vertices: [], edges: [] }, scope)).toThrow('duplicate vertex identity');
+  });
+});
+
+describe('reconcile batch preconditions (0039 item 24)', () => {
+  const probe = (id: string): VertexResult => ({ kind: 'item', key: { id } });
+  const support = (id: string): VertexResult => ({ kind: 'support', key: { id } });
+  const link = (from: string, to: string, discriminator?: string): EdgeResult => ({ kind: 'link', from: { kind: 'item', key: { id: from } }, to: { kind: 'item', key: { id: to } }, ...(discriminator === undefined ? {} : { discriminator }) });
+
+  test('names the read sequence of every touched subject of the unit kind and of every touched edge', () => {
+    const revisions = [
+      { subject: { sort: 'vertex' as const, kind: 'item', key: { id: 'held' } }, recordedSequence: '11' },
+      { subject: { sort: 'edge' as const, kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }, recordedSequence: '12' },
+    ];
+    expect(batchPreconditions({ vertices: [probe('held'), probe('added'), support('supported')], edges: [link('held', 'added')], removals: [probe('retired')] }, revisions, 'item')).toEqual([
+      { subject: { sort: 'edge', kind: 'link', from: { kind: 'item', key: { id: 'held' } }, to: { kind: 'item', key: { id: 'added' } } }, recordedSequence: '12' },
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'added' } } },
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'held' } }, recordedSequence: '11' },
+      { subject: { sort: 'vertex', kind: 'item', key: { id: 'retired' } } },
+    ]);
+  });
+
+  test('an unreported subject of the unit kind states its absence, and a support kind carries no claim', () => {
+    expect(batchPreconditions({ vertices: [support('supported')] }, [{ subject: { sort: 'vertex', kind: 'item', key: { id: 'held' } }, recordedSequence: '3' }], 'item')).toEqual([]);
+    expect(batchPreconditions({ removals: [probe('retired')] }, [], 'item')).toEqual([{ subject: { sort: 'vertex', kind: 'item', key: { id: 'retired' } } }]);
+  });
+
+  test('a repeated subject and an empty discriminator name one subject, never two conditions', () => {
+    const subject = { sort: 'edge' as const, kind: 'link', from: { kind: 'item', key: { id: 'a' } }, to: { kind: 'item', key: { id: 'b' } } };
+    expect(batchPreconditions({ edges: [link('a', 'b', ''), { ...link('a', 'b'), discriminator: '' }] }, [{ subject, recordedSequence: '4' }], 'item')).toEqual([{ subject, recordedSequence: '4' }]);
   });
 });

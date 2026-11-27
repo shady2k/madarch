@@ -87,12 +87,43 @@ export const PluginEdgeResult = Type.Object(
   { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
 
+/**
+ * One subject of a reconciliation read, as the graph names it: a vertex by its kind and key, an edge by its kind and
+ * ends, never by a node id the host hands out (0035, item 3). A retraction is a statement about such a subject, so the
+ * subject a reconcile batch names is the same shape whether the fact stands or was withdrawn.
+ */
+export const PluginSubject = Type.Union(
+  [
+    Type.Object({ sort: Type.Literal('vertex'), kind: Type.String({ minLength: 1 }), key: PluginKeyValues, keyEdges: Type.Optional(PluginKeyEdges) }, { additionalProperties: false, description: 'A vertex subject by its kind and natural key.' }),
+    Type.Object({ sort: Type.Literal('edge'), kind: Type.String({ minLength: 1 }), from: PluginEntityRef, to: PluginEntityRef, discriminator: Type.Optional(Type.String({ description: 'What tells repeats between the same ends apart; an empty string where the kind does not repeat.' })) }, { additionalProperties: false, description: 'An edge subject by its kind and ends.' }),
+  ],
+  { description: 'One subject of a graph read: a vertex by kind and key, or an edge by kind and ends.' },
+);
+
+/**
+ * The last recorded sequence of this source's stream for one subject (0039 item 24, clarification of 2026-11-18): what
+ * a read used to decide a mutation supplies as a precondition, and what the writer compares against under its lock. It
+ * covers a retracted subject too: that statement is in the stream, and its sequence is what a later assertion of the
+ * same subject is planned from.
+ */
+export const PluginSubjectRevision = Type.Object(
+  {
+    subject: PluginSubject,
+    recordedSequence: Type.String({ minLength: 1, pattern: '^[0-9]+$', description: 'The last recorded sequence of this source\'s stream for the subject, in decimal.' }),
+  },
+  { additionalProperties: false, description: 'One subject and the last recorded sequence of this source\'s stream for it.' },
+);
+
 /** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
 export const PluginGraphOwnFactsRequest = Type.Object({
   unitId: Type.String({ minLength: 1 }),
   scope: Type.Object({ parent: Type.Optional(PluginEntityRef), repository: Type.Optional(Type.String({ minLength: 1 })), commit: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
 }, { additionalProperties: false });
-export const PluginGraphOwnFactsResult = Type.Object({ vertices: Type.Array(PluginVertexResult), edges: Type.Array(PluginEdgeResult) }, { additionalProperties: false });
+export const PluginGraphOwnFactsResult = Type.Object({
+  vertices: Type.Array(PluginVertexResult),
+  edges: Type.Array(PluginEdgeResult),
+  revisions: Type.Optional(Type.Array(PluginSubjectRevision, { description: 'The last recorded sequence of this source\'s stream for every subject of the kinds the read covered, standing or retracted; absent, the answer names none and a batch decided from it carries no preconditions.' })),
+}, { additionalProperties: false });
 
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
 export const PluginRemoval = Type.Object(
@@ -463,9 +494,22 @@ export const PluginGraphPageRequest = Type.Object(
 const GraphRemovedEndsMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.removedEnds'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the edges whose end is removed.' });
 const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unevidenced'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none.' });
 
+/**
+ * One precondition of an atomic fact operation: the subject the batch touches, and the sequence the read that decided it
+ * saw (0039 item 24). An absent sequence states that this source never asserted the subject, and the writer refuses the
+ * batch if it has by the time the operation commits.
+ */
+export const PluginPrecondition = Type.Object(
+  {
+    subject: PluginSubject,
+    recordedSequence: Type.Optional(Type.String({ minLength: 1, pattern: '^[0-9]+$', description: 'The last recorded sequence of this source\'s stream for the subject the operation was decided from; absent, the source has never asserted the subject.' })),
+  },
+  { additionalProperties: false, description: 'The subject an operation touches and the sequence its read saw.' },
+);
+
 /** One checked atomic fact operation, accepted immediately by the one writer. */
 export const PluginFactsApplyRequest = Type.Object({
-  preconditions: Type.Optional(Type.Array(Type.Object({ uid: Type.String({ minLength: 1 }), recordedSequence: Type.String({ minLength: 1 }) }, { additionalProperties: false }))),
+  preconditions: Type.Optional(Type.Array(PluginPrecondition)),
   contractVersion: Type.Optional(Type.String({ minLength: 1 })),
   unitId: Type.String({ minLength: 1 }),
   key: Type.String({ minLength: 1 }),
@@ -525,6 +569,9 @@ export const PluginProtocolMessage = Type.Union(
 
 export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsRequest>;
 export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
+export type PluginSubject = Static<typeof PluginSubject>;
+export type PluginSubjectRevision = Static<typeof PluginSubjectRevision>;
+export type PluginPrecondition = Static<typeof PluginPrecondition>;
 export type PluginFactsApplyRequest = Static<typeof PluginFactsApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;

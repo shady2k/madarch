@@ -140,7 +140,7 @@ test('own-kind key scope includes only same-source direct forward support and ke
     expect(facts.vertices.map(vertex => vertex.key.id).sort()).toEqual(['selected', 'support']);
     expect(facts.edges.map(edge => edge.to.key.id).sort()).toEqual(['foreign-source', 'support']);
     expect((await read({ ...scope, supportKeys: false })).vertices.map(vertex => vertex.key.id)).toEqual(['selected']);
-    expect(await read({ ...scope, paths: ['src'] })).toEqual({ vertices: [], edges: [] });
+    expect(await read({ ...scope, paths: ['src'] })).toEqual({ vertices: [], edges: [], revisions: [] });
     expect((await read({ ...scope, ownedEdges: [] })).vertices.map(vertex => vertex.key.id)).toEqual(['selected']);
     expect((await read({ ...scope, keys: [] })).vertices).toEqual([]);
     expect((await read({ kind: 'Fixture.node', ownedEdges, supportKeys: true })).vertices).toHaveLength(5);

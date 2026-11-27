@@ -1831,7 +1831,7 @@ async function attemptUnitPhases(
       const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
       const immediate = attemptOperations = await orchestrator.operations.open({unit,plan,job:request.job,queue:orchestrator.queue});
       context = {
-        ...{operationSourceUid:immediate.sourceUid,operationUnitUid:immediate.unitUid,executeOperation:<Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly {uid:string;recordedSequence:string}[])=>immediate.host.execute({key,request,...(preconditions===undefined?{}:{preconditions})},apply)},
+        ...{operationSourceUid:immediate.sourceUid,operationUnitUid:immediate.unitUid,executeOperation:<Result>(key:string,request:unknown,apply:(tx:import('../history-types.js').OuterTransaction)=>Promise<Result>,preconditions?:readonly import('../graph/operation-host.js').OperationPrecondition[])=>immediate.host.execute({key,request,...(preconditions===undefined?{}:{preconditions})},apply)},
         completeOutcome:outcome=>{producerOutcome=outcome;},
         runId: unit.runId,
         unit: { id: plan.stageUnitId, scope: plan.scope },

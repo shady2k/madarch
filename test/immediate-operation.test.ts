@@ -4,9 +4,10 @@ import {createPgBossQueue} from '../src/adapters/pg-boss-queue.js';
 import {prepareQueueSchema} from '../src/adapters/schemas/queue.js';
 import {createOperationHost,initializeOperationScope,changeOperationRunState,resolveOperationScope} from '../src/graph/operation-host.js';
 import {startupBinding} from '../src/graph/manifest-publication.js';
-import {EMPTY_CONTRACT} from '../src/graph/contract.js';
+import {EMPTY_CONTRACT,generatedTableName,type GraphContract} from '../src/graph/contract.js';
 import {newUid} from '../src/graph/uid.js';
-import {bindWriteCapability,writeAssertion} from '../src/graph/write.js';
+import {bindWriteCapability,publishGraphDrafts,writeAssertion} from '../src/graph/write.js';
+import {bindTestWriteCapability} from './write-capability-fixture.js';
 
 const declaration={name:'operations',leaseSeconds:60,retries:1,retryDelaySeconds:0,retryBackoff:false};
 test('immediate operation receipt, rollback, preconditions, run state and atomic completion',async()=>{
@@ -101,6 +102,77 @@ test('an operation capability cannot assert the fill machine state',async()=>{
    const subject=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[unitUid])).rows[0]!;
    await writeAssertion(tx,EMPTY_CONTRACT,{sort:'vertex',kind:'system.unit',subjectId:subject.id,property:'state',operation:'assert',value:'failed'});
   })).rejects.toThrow('FORBIDDEN_SOURCE');
+ }finally{await queue.stop();await owner.close();}
+},60000);
+
+test('subject preconditions name this source\u2019s stream, retracted and never-asserted subjects included',async()=>{
+ // 0039 item 24: a plugin addresses a subject by identity, and the sequence a batch was decided from is this source's
+ // own stream position for it, so another source's statement on the same subject never makes the batch stale.
+ const contract:GraphContract={
+  vertex:[{name:'fixture.item',table:generatedTableName('fixture.item','vertex'),key:['name'],capability:'reader',fields:[{name:'name',type:'text'},{name:'text',type:'text',nullable:true}]}],
+  edge:[{name:'fixture.link',table:generatedTableName('fixture.link','edge'),from:['fixture.item'],to:['fixture.item'],cardinality:{from:'many',to:'many'},labels:{en:{out:'links',in:'linked by'},ru:{out:'связан',in:'связан'}},repeats:true,discriminator:'place',capability:'reader',fields:[]}],
+  dictionary:[],
+ };
+ const item=(name:string)=>({kind:'fixture.item',key:{name}});
+ const link=(from:string,to:string)=>({kind:'fixture.link',from:item(from),to:item(to),discriminator:'line:1'});
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ await prepareQueueSchema(owner,{declarations:[declaration]});
+ const queue=await createPgBossQueue({owner,supervise:false});
+ try{
+  await queue.declare(declaration);await queue.enqueue({queue:declaration.name,data:{}});
+  const [job]=await queue.claim({queue:declaration.name});
+  const {binding}=await owner.transaction('write',tx=>startupBinding(tx,contract,'fixture.preconditions'));
+  const source=binding.sourceUid;
+  const publish=async(drafts:Parameters<typeof publishGraphDrafts>[2],as=source)=>await owner.transaction('write',async tx=>{await bindTestWriteCapability(tx,contract,as);return await publishGraphDrafts(tx,contract,drafts,1);});
+  await publish({vertices:[{...item('kept'),values:{text:'first'},producer:'preconditions',producerVersion:'1'},{...item('withdrawn'),values:{text:'gone'},producer:'preconditions',producerVersion:'1'}],removals:[]});
+  await publish({vertices:[],edges:[{...link('kept','withdrawn'),producer:'preconditions',producerVersion:'1'}],removals:[]});
+  await publish({vertices:[],removals:[{...item('withdrawn'),producer:'preconditions'}]});
+  /** The subject's last recorded sequence in one source's stream, read independently of the writer's own answer. */
+  const sequenceOf=async(kind:'vertex'|'edge',subject:Record<string,unknown>,of=source):Promise<string>=>{
+   const sql=kind==='vertex'
+    ?`SELECT max(a.recorded_sequence)::text AS revision FROM assertion a
+      JOIN edge held ON held.from_node=a.assertion_id
+      JOIN entity held_kind ON held_kind.id=held.entity_id AND held_kind.name='system.assertion-source'
+      JOIN node held_source ON held_source.id=held.to_node
+      JOIN assertion_vertex_subject s ON s.assertion_id=a.assertion_id JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN node n ON n.id=attachment.to_node JOIN entity k ON k.id=n.entity_id
+      WHERE k.name=$1 AND n.key=$2::jsonb AND held_source.uid=$3::uuid`
+    :`SELECT max(a.recorded_sequence)::text AS revision FROM assertion a
+      JOIN edge held ON held.from_node=a.assertion_id
+      JOIN entity held_kind ON held_kind.id=held.entity_id AND held_kind.name='system.assertion-source'
+      JOIN node held_source ON held_source.id=held.to_node
+      JOIN assertion_edge_subject s ON s.assertion_id=a.assertion_id JOIN edge subject_edge ON subject_edge.id=s.edge_id JOIN node from_node ON from_node.id=subject_edge.from_node JOIN node to_node ON to_node.id=subject_edge.to_node JOIN entity k ON k.id=subject_edge.entity_id
+      WHERE k.name=$1 AND from_node.key=$2::jsonb AND to_node.key=$3::jsonb AND subject_edge.discriminator=$4 AND held_source.uid=$5::uuid`;
+   const values=kind==='vertex'?['fixture.item',subject,of]:['fixture.link',{name:subject['from']},{name:subject['to']},String(subject['discriminator']),of];
+   return (await owner.run(tx=>tx.query<{revision:string|null}>(sql,values))).rows[0]?.revision??'0';
+  };
+  const runUid=newUid(),unitUid=newUid();
+  await owner.transaction('write',tx=>initializeOperationScope(tx,contract,binding,runUid,unitUid));
+  const host=createOperationHost({owner,queue,job:job!,contract,capability:binding,runUid,unitUid});
+  const execute=async(key:string,preconditions:readonly import('../src/graph/operation-host.js').OperationPrecondition[])=>await host.execute({key,request:{},preconditions},async()=>({accepted:true}));
+  const kept=await sequenceOf('vertex',{name:'kept'});
+  expect(Number(kept)).toBeGreaterThan(0);
+  expect(await execute('kept-fresh',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'kept'}},recordedSequence:kept}])).toEqual({accepted:true});
+  await expect(execute('kept-stale',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'kept'}},recordedSequence:'0'}])).rejects.toThrow('REVISION_CONFLICT');
+  // A subject another source states too is not this source's business: its own stream did not move.
+  await publish({vertices:[{...item('kept'),values:{text:'another source'},producer:'other',producerVersion:'1'}],removals:[]},'019a0000-0000-7000-8000-000000000099');
+  expect(await sequenceOf('vertex',{name:'kept'})).toBe(kept);
+  expect(await execute('kept-foreign-statement',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'kept'}},recordedSequence:kept}])).toEqual({accepted:true});
+  // A withdrawn subject keeps its place in the stream: a later assertion is decided from the retraction's sequence.
+  const withdrawn=await sequenceOf('vertex',{name:'withdrawn'});
+  expect(Number(withdrawn)).toBeGreaterThan(0);
+  expect(await execute('withdrawn-fresh',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'withdrawn'}},recordedSequence:withdrawn}])).toEqual({accepted:true});
+  await expect(execute('withdrawn-absent',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'withdrawn'}}}])).rejects.toThrow('REVISION_CONFLICT');
+  // A subject this source never asserted: the batch states that absence, and the writer holds it to it.
+  expect(await sequenceOf('vertex',{name:'absent'})).toBe('0');
+  expect(await execute('absent-stated',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'absent'}}}])).toEqual({accepted:true});
+  expect(await execute('absent-zero',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'absent'}},recordedSequence:'0'}])).toEqual({accepted:true});
+  await expect(execute('absent-changed',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'absent'}},recordedSequence:'1'}])).rejects.toThrow('REVISION_CONFLICT');
+  // An edge is a subject of its own, by its kind and ends.
+  const linked=await sequenceOf('edge',{from:'kept',to:'withdrawn',discriminator:'line:1'});
+  expect(Number(linked)).toBeGreaterThan(0);
+  expect(await execute('edge-fresh',[{subject:{sort:'edge',kind:'fixture.link',from:item('kept'),to:item('withdrawn'),discriminator:'line:1'},recordedSequence:linked}])).toEqual({accepted:true});
+  await expect(execute('edge-stale',[{subject:{sort:'edge',kind:'fixture.link',from:item('kept'),to:item('withdrawn'),discriminator:'line:1'},recordedSequence:'0'}])).rejects.toThrow('REVISION_CONFLICT');
+  await expect(execute('repeated',[{subject:{sort:'vertex',kind:'fixture.item',key:{name:'kept'}}},{subject:{sort:'vertex',kind:'fixture.item',key:{name:'kept'}}}])).rejects.toThrow('MALFORMED_PRECONDITION');
  }finally{await queue.stop();await owner.close();}
 },60000);
 

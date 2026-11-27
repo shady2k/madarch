@@ -33,7 +33,8 @@ test('1000 facts use two bounded content-addressed operations',async()=>{
  const outcome=await run(facts(1000),async()=>({vertices:[],edges:[]}),async(key,operation)=>{
   operations.push(operation);
   if(operations.length>2)throw new Error(`${import.meta.path}:40: more than two operations`);
-  expect(key).toBe('reconcile-'+createHash('sha256').update(canonicalJson(operation)).digest('hex'));
+  // 0039 item 24: the key is the digest of the canonical request, the preconditions it was decided from included.
+  expect(key).toBe('reconcile-'+createHash('sha256').update(canonicalJson({operation,preconditions:[]})).digest('hex'));
   expect(Buffer.byteLength(JSON.stringify(operation))).toBeLessThanOrEqual(512*1024);
   expect(operation.vertices?.length).toBeLessThanOrEqual(500);
   return {};

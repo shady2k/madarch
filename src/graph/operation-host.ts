@@ -9,7 +9,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { withSpan } from '../obs/trace.js';
 import { assertionValueTableName, type GraphContract } from './contract.js';
 import { loadAssertionsBatch } from './assertion-read.js';
-import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, writeAssertion, writeAssertions, type WriteCapability } from './write.js';
+import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, subjectUid, writeAssertion, writeAssertions, type WriteCapability, type WriteSubject } from './write.js';
 import { newUid } from './uid.js';
 import { reconcileDisputes } from './disputes.js';
 import type { ClaimedJob, EnqueueRequest, QueueService } from '../fill/queue.js';
@@ -18,10 +18,20 @@ const WHERE = new URL(import.meta.url).pathname;
 
 /** A fenced operation cannot write after its queue attempt loses authority. */
 export class AttemptStaleError extends Error {}
+/**
+ * One precondition of an operation (0039 item 24): a subject's graph revision as a person's read answered it, named by
+ * uid, or this source's stream position for a subject a plugin's reconcile named by identity. A subject precondition
+ * with no sequence states that this source never asserted the subject.
+ */
+export type OperationPrecondition =
+  | { readonly uid: string; readonly recordedSequence: string }
+  | { readonly subject: WriteSubject; readonly recordedSequence?: string };
+/** A read decided this operation from a sequence the graph no longer holds: the producer rereads and replans. */
+class RevisionConflictError extends Error { readonly code = 'REVISION_CONFLICT'; }
 export interface OperationRequest {
   readonly key: string;
   readonly request: unknown;
-  readonly preconditions?: readonly {readonly uid:string; readonly recordedSequence:string}[];
+  readonly preconditions?: readonly OperationPrecondition[];
   readonly completion?: {readonly unitState?:'retry_wait'; readonly output:object; readonly enqueue:readonly EnqueueRequest[];readonly outcome?:import('../fill/producer-outcomes.js').ProducerOutcomeDraft};
 }
 export interface OperationReceiptRequest {
@@ -162,6 +172,75 @@ interface OperationPreflight {
   readonly runId:string|null; readonly unitId:string|null;
   readonly principalKind:string|null; readonly locked:readonly {id:string;uid:string}[];
 }
+
+/**
+ * The last recorded sequence of a subject set (0039 item 24), named by subject uid: the whole subject stream a person's
+ * read states, or — with a source — that source's own statements, which is what a plugin's reconcile was decided from. A
+ * retraction is a statement of the stream, so a withdrawn subject has a sequence too; a subject with no statement has 0.
+ */
+async function subjectStreamRevisions(tx:OuterTransaction,uids:readonly string[],sourceUid?:string):Promise<Map<string,string>>{
+ if(uids.length===0)return new Map();
+ return await withSpan('graph.operation.subject-revisions',{},async()=>{
+ const array=sourceUid===undefined?'$1':'$2';
+ const subjectRows=`SELECT n.uid AS subject_uid,s.assertion_id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN node n ON n.id=attachment.to_node WHERE n.uid=ANY(${array}::uuid[])
+    UNION ALL
+    SELECT e.uid AS subject_uid,s.assertion_id FROM assertion_edge_subject s JOIN edge e ON e.id=s.edge_id WHERE e.uid=ANY(${array}::uuid[])`;
+ const scoped=`JOIN edge source ON source.from_node=a.assertion_id
+      JOIN entity source_kind ON source_kind.id=source.entity_id AND source_kind.name='system.assertion-source' AND source_kind.sort='edge'
+      JOIN node source_node ON source_node.id=source.to_node
+    WHERE source_node.uid::text=$1`;
+ const rows=(await tx.query<{uid:string;revision:string}>(`WITH subject_rows AS (${subjectRows})
+    SELECT subject_rows.subject_uid::text AS uid,${sourceUid===undefined?'coalesce(max(a.recorded_sequence),0)':'max(a.recorded_sequence)'}::text AS revision
+    FROM subject_rows JOIN assertion a ON a.assertion_id=subject_rows.assertion_id
+    ${sourceUid===undefined?'':scoped}
+    GROUP BY subject_rows.subject_uid`,sourceUid===undefined?[uids]:[sourceUid,uids])).rows;
+ return new Map(rows.map(row=>[row.uid,String(row.revision)]));
+ });
+}
+
+/** The subjects the graph holds, locked in uid order (0039 item 24): a subject nothing holds yet has nothing to lock. */
+async function heldSubjects(tx:OuterTransaction,uids:readonly string[]):Promise<{nodes:Set<string>;edges:Set<string>}>{
+ return await withSpan('graph.operation.subject-locks',{},async()=>{
+ const ordered=[...new Set(uids)].sort(byCodePoint);
+ const nodes=new Set<string>(),edges=new Set<string>();
+ if(ordered.length===0)return {nodes,edges};
+ for(const row of (await tx.query<{uid:string}>('SELECT uid::text AS uid FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[ordered])).rows)nodes.add(row.uid);
+ for(const row of (await tx.query<{uid:string}>('SELECT uid::text AS uid FROM edge WHERE uid=ANY($1::uuid[]) ORDER BY uid::text COLLATE "C" FOR UPDATE',[ordered])).rows)edges.add(row.uid);
+ return {nodes,edges};
+ });
+}
+
+/**
+ * Refuse an operation whose read is stale (0039 item 24). A uid precondition names a subject's whole graph revision, as
+ * a person's read states it; a subject precondition names this source's stream position for a subject a plugin's
+ * reconcile addressed by identity, so another source's statement on the same subject never makes it stale.
+ */
+async function checkPreconditions(tx:OuterTransaction,options:OperationHostOptions,preconditions:readonly OperationPrecondition[],context:number):Promise<void>{
+ if(preconditions.length===0)return;
+ // Identity is derived from the authenticated capability, and the operation's own bind follows this check.
+ bindWriteCapability(tx,options.capability);
+ const stated=new Map<string,string>(),own=new Map<string,{subject:WriteSubject;expected:string|undefined}>();
+ for(const condition of preconditions){
+  if('uid' in condition){stated.set(condition.uid,condition.recordedSequence);continue;}
+  const uid=await subjectUid(tx,options.contract,condition.subject,context);
+  if(own.has(uid))throw new Error(`${WHERE}:92: MALFORMED_PRECONDITION repeated subject ${uid}`);
+  own.set(uid,{subject:condition.subject,expected:condition.recordedSequence});
+ }
+ const held=await heldSubjects(tx,[...stated.keys(),...own.keys()]);
+ if(stated.size>0){
+  const revisions=await subjectStreamRevisions(tx,[...stated.keys()]);
+  for(const [uid,expected] of stated){
+   if(!held.nodes.has(uid)&&!held.edges.has(uid))throw new Error(`${WHERE}:92: TARGET_MISSING revision ${uid}`);
+   if((revisions.get(uid)??'0')!==expected)throw new RevisionConflictError(`${WHERE}:92: REVISION_CONFLICT ${uid}`);
+  }
+ }
+ if(own.size>0){
+  const revisions=await subjectStreamRevisions(tx,[...own.keys()],options.capability.sourceUid);
+  for(const [uid,{subject,expected}] of own){
+   if((revisions.get(uid)??'0')!==(expected??'0'))throw new RevisionConflictError(`${WHERE}:92: REVISION_CONFLICT ${subject.kind} ${uid}`);
+  }
+ }
+}
 async function operationPreflight(tx:OuterTransaction,options:OperationHostOptions):Promise<OperationPreflight>{
   return await withSpan('graph.operation.preflight',{},async()=>{
   const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
@@ -232,13 +311,7 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         const uids=[...new Set([options.runUid,options.unitUid])].sort(byCodePoint);
         const runState=fields[0]!.state,unitState=fields[1]!.state;
         if(preflight.locked.length!==uids.length || runState!=='running' || unitState!=='running')throw new Error(`${WHERE}:87: RUN_NOT_WRITABLE run ${String(runState)} unit ${String(unitState)}`);
-        for(const condition of [...request.preconditions??[]].sort((a,b)=>byCodePoint(a.uid,b.uid))){
-          const vertex=await tx.query('SELECT id FROM node WHERE uid=$1::uuid FOR UPDATE',[condition.uid]);
-          const edge=vertex.rows.length===0?await tx.query('SELECT id FROM edge WHERE uid=$1::uuid FOR UPDATE',[condition.uid]):undefined;
-          if(vertex.rows.length===0&&edge?.rows.length===0)throw new Error(`${WHERE}:92: TARGET_MISSING revision ${condition.uid}`);
-          const revision=(await tx.query<{revision:string}>(`SELECT coalesce(max(a.recorded_sequence),0)::text AS revision FROM assertion a WHERE a.assertion_id IN (SELECT s.assertion_id FROM assertion_vertex_subject s JOIN edge attachment ON attachment.id=s.subject_edge_id JOIN node n ON n.id=attachment.to_node WHERE n.uid=$1::uuid UNION ALL SELECT s.assertion_id FROM assertion_edge_subject s JOIN edge subject ON subject.id=s.edge_id WHERE subject.uid=$1::uuid)`,[condition.uid])).rows[0]!.revision;
-          if(revision!==condition.recordedSequence)throw new Error(`${WHERE}:92: REVISION_CONFLICT ${condition.uid}`);
-        }
+        await checkPreconditions(tx,options,request.preconditions??[],context);
         const operationUid=newUid();
         await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));

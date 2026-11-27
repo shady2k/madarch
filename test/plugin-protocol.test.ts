@@ -456,10 +456,14 @@ test('unit completion is terminal status only, never a delayed facts transport',
   for (const retired of ['vertices', 'edges', 'removals', 'chunkCount']) expect(Value.Check(PluginUnitResult, { ...completed, [retired]: retired === 'chunkCount' ? 0 : [] })).toBe(false);
 });
 
-test('facts.apply revision preconditions are closed request metadata, not graph facts', () => {
-  const request = { jsonrpc: '2.0', id: 1, method: 'facts.apply', params: { unitId: 'unit', key: 'logical', operation: {}, preconditions: [{ uid: 'entity', recordedSequence: '4' }], contractVersion: 'version' } };
+test('facts.apply preconditions name a subject and the sequence the read saw, never a graph fact', () => {
+  const subject = { sort: 'vertex' as const, kind: 'sample', key: { id: 'a' } };
+  const request = { jsonrpc: '2.0', id: 1, method: 'facts.apply', params: { unitId: 'unit', key: 'logical', operation: {}, preconditions: [{ subject, recordedSequence: '4' }], contractVersion: 'version' } };
   expect(Value.Check(PluginProtocolMessage, request)).toBe(true);
-  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, preconditions: [{ uid: 'entity', recordedSequence: -1 }] } })).toBe(false);
+  // An absent sequence states the absence a batch was decided from: this source never asserted the subject.
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, preconditions: [{ subject }] } })).toBe(true);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, preconditions: [{ subject, recordedSequence: '4.5' }] } })).toBe(false);
+  expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, preconditions: [{ uid: 'entity', recordedSequence: '4' }] } })).toBe(false);
   expect(Value.Check(PluginProtocolMessage, { ...request, params: { ...request.params, operation: { preconditions: [] } } })).toBe(false);
 });
 

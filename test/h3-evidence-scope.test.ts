@@ -52,7 +52,7 @@ test('N7 declared same-source evidence pins expand only in-scope facts, without 
     const expanded = await read({ ...scope, supportKeys: true });
     expect(expanded.vertices.map(v => v.key.id).sort()).toEqual(['edge-pin', 'forward', 'other', 'pin', 'selected']);
     expect(queries - baseline).toBeLessThanOrEqual(1);
-    expect(await read({ ...scope, supportKeys: true, paths: ['outside'] })).toEqual({ vertices: [], edges: [] });
+    expect(await read({ ...scope, supportKeys: true, paths: ['outside'] })).toEqual({ vertices: [], edges: [], revisions: [] });
     expect((await read({ ...scope, supportKeys: true, keys: [] })).vertices).toEqual([]);
   } finally { await owner.close(); }
 }, 30_000);

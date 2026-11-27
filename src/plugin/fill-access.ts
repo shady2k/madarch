@@ -44,7 +44,8 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
       const facts = await graph.ownFacts!(query);
       return { vertices: facts.vertices.filter((vertex) => vertex.kind === scope.output).map((vertex) => ({ ...vertex,
         ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => scope.fields.includes(field))) }),
-      })), edges: facts.edges.filter((edge) => scope.edges.includes(edge.kind)) };
+      })), edges: facts.edges.filter((edge) => scope.edges.includes(edge.kind)),
+        ...(facts.revisions === undefined ? {} : { revisions: facts.revisions.filter((revision) => revision.subject.sort === 'vertex' ? revision.subject.kind === scope.output : scope.edges.includes(revision.subject.kind)) }) };
     } }),
     // The host authorizes writer consistency records by graphReads, not catalogue content prerequisites.
     ...(graph.removedEnds === undefined ? {} : { removedEnds: (...args: Parameters<NonNullable<GraphAnswerer['removedEnds']>>) => graph.removedEnds!(...args) }),

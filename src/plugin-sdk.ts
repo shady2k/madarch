@@ -126,6 +126,29 @@ export interface ReconciliationScope {
 export interface OwnFacts {
   readonly vertices: readonly VertexResult[];
   readonly edges: readonly EdgeResult[];
+  /**
+   * The last recorded sequence of this source's stream for every subject of the kinds the read covered, whether the
+   * subject stands or was retracted (0039 item 24). Absent, the answer made no claim about sequences, and a batch
+   * decided from it carries no preconditions.
+   */
+  readonly revisions?: readonly SubjectRevision[];
+}
+
+/** One subject a graph read and a batch name: a vertex by kind and key, an edge by kind and ends (0035, item 3). */
+export type SubjectRef =
+  | { readonly sort: 'vertex'; readonly kind: string; readonly key: KeyValues; readonly keyEdges?: Readonly<Record<string, EntityRef>> }
+  | { readonly sort: 'edge'; readonly kind: string; readonly from: EntityRef; readonly to: EntityRef; readonly discriminator?: string };
+
+/** The last recorded sequence of this source's stream for one subject, retracted subjects included. */
+export interface SubjectRevision {
+  readonly subject: SubjectRef;
+  readonly recordedSequence: string;
+}
+
+/** One subject an operation touches, and the sequence the read that decided it saw; absent, this source asserted it never. */
+export interface Precondition {
+  readonly subject: SubjectRef;
+  readonly recordedSequence?: string;
 }
 
 /** One explicit difference submitted to the one writer. */
@@ -157,6 +180,41 @@ function canonical(value: unknown): string {
 
 function presentValues(values: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values ?? {}).filter(([, value]) => value !== undefined));
+}
+
+/** The subject a vertex subject names: its kind, its key and its parent roles, with no uid (0035, item 3). */
+function vertexSubject(fact: VertexResult | (EntityRef & { readonly evidence?: Evidence })): SubjectRef {
+  const keyEdges = fact.keyEdges;
+  return { sort: 'vertex', kind: fact.kind, key: fact.key, ...(keyEdges === undefined || Object.keys(keyEdges).length === 0 ? {} : { keyEdges }) };
+}
+
+/** The subject an edge subject names: its kind, its ends and what tells repeats apart, an empty discriminator no repeat. */
+function edgeSubject(fact: EdgeResult): SubjectRef {
+  return { sort: 'edge', kind: fact.kind, from: fact.from, to: fact.to, ...(fact.discriminator === undefined || fact.discriminator === '' ? {} : { discriminator: fact.discriminator }) };
+}
+
+/**
+ * Decision 0039 item 24 (clarification of 2026-11-18): a batch carries the sequence its read saw for every subject it
+ * touches, and the key of the operation is derived from the operation together with those preconditions. A subject of
+ * the reconciled kind or of an edge kind the answer named no revision for is one this source never asserted, and the
+ * batch states that absence — so a repeated `add` after a retraction carries the retraction's sequence and becomes a
+ * different operation. A support vertex of another kind carries no precondition: the read answered facts of the unit's
+ * kind, so it made no claim about that subject.
+ */
+export function batchPreconditions(operation: FactsOperation, revisions: readonly SubjectRevision[], kind: string): Precondition[] {
+  const known = new Map(revisions.map((revision) => [canonical(revision.subject), revision.recordedSequence]));
+  const conditions = new Map<string, Precondition>();
+  const add = (subject: SubjectRef): void => {
+    const held = canonical(subject);
+    if (conditions.has(held)) return;
+    const recordedSequence = known.get(held);
+    conditions.set(held, recordedSequence === undefined ? { subject } : { subject, recordedSequence });
+  };
+  for (const fact of operation.vertices ?? []) if (fact.kind === kind) add(vertexSubject(fact));
+  for (const fact of operation.removals ?? []) if (fact.kind === kind) add(vertexSubject(fact));
+  for (const fact of operation.edgeRemovals ?? []) add(edgeSubject(fact));
+  for (const fact of operation.edges ?? []) add(edgeSubject(fact));
+  return [...conditions.entries()].sort(([left], [right]) => codePointOrder(left, right)).map(([, condition]) => condition);
 }
 
 /**
@@ -541,7 +599,7 @@ export interface ExtractContext {
   /** Compare a covered source snapshot and immediately apply only differences. */
   reconcile(source: UnitResult, scope: ReconciliationScope): Promise<void>;
   /** Applies one atomic operation; retry the same logical key only with identical content. */
-  readonly facts: { apply(key: string, operation: FactsOperation, options?: { readonly preconditions?: readonly { readonly uid: string; readonly recordedSequence: string }[]; readonly contractVersion?: string }): Promise<unknown> };
+  readonly facts: { apply(key: string, operation: FactsOperation, options?: { readonly preconditions?: readonly Precondition[]; readonly contractVersion?: string }): Promise<unknown> };
   /** Set when the host asked the plugin to stop: a long read should give up at the next check. */
   readonly signal: AbortSignal;
   /** Says the plugin is alive while a long unit runs; the SDK sends one on a timer as well. */
@@ -651,6 +709,30 @@ export interface PluginDefinition {
 
 /** The JSON-RPC id a message answers or asks by. */
 type RpcId = string | number;
+
+/**
+ * How often one reconcile rereads the graph and replans when the writer refused a stale precondition (0039 item 24). A
+ * changed decision is replanned, never replayed; a writer that keeps contending ends the unit rather than looping.
+ */
+const reconciliationAttempts = 3;
+
+/** The refusal the one writer answers a stale precondition with, so a replan is not mistaken for a failure. */
+const REVISION_CONFLICT = 'REVISION_CONFLICT';
+
+/** A refusal the host answered, with the cause it named: `REVISION_CONFLICT` is the one a replan answers. */
+class HostRefusal extends Error {
+  readonly code: string | undefined;
+  constructor(message: string, code: string | undefined) {
+    super(message);
+    this.name = 'HostRefusal';
+    this.code = code;
+  }
+}
+
+/** Whether the host refused with a stale precondition: the read is out of date and the graph has to be read again. */
+function revisionConflict(error: unknown): boolean {
+  return error instanceof HostRefusal && error.code === REVISION_CONFLICT;
+}
 
 /** The requests this plugin asked the host and has not been answered for, by their id. */
 const pendingOfHost = new Map<RpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
@@ -762,22 +844,36 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         const keys = (unit.inputs as { keys?: readonly KeyValues[] } | undefined)?.keys;
         const ownership = keys === undefined ? undefined : { kind: unit.kind, keys };
         const reconcile = async (source: UnitResult, scope: ReconciliationScope, retainApplied = false): Promise<void> => {
-          const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
           // Discard the result intentionally: validate duplicates and scope before merging retained facts.
           if (retainApplied) reconcileFacts(source, { vertices: [], edges: [] }, scope, ownership);
-          const desired = retainApplied ? {
-            ...source,
-            vertices: [...new Map([...current.vertices.filter(vertex => appliedVertices.has(vertexIdentity(vertex))), ...(source.vertices ?? [])].map(vertex => [vertexIdentity(vertex), vertex])).values()],
-            edges: [...new Map([...current.edges.filter(edge => appliedEdges.has(edgeIdentity(edge))), ...(source.edges ?? [])].map(edge => [edgeIdentity(edge), edge])).values()],
-          } : source;
-          for (const operation of reconciliationBatches(reconcileFacts(desired, current, scope, ownership), definition.contract, unit)) {
-            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
-            const key = `reconcile-${createHash('sha256').update(canonical(operation)).digest('hex')}`;
-            await askHost('facts.apply', { unitId: unit.unitId, key, operation });
-            for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
-            for (const edge of operation.edges ?? []) appliedEdges.add(edgeIdentity(edge));
-            for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
-            for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
+          let desired = source;
+          for (let attempt = 1; ; attempt += 1) {
+            const current = await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope });
+            desired = retainApplied ? {
+              ...source,
+              vertices: [...new Map([...current.vertices.filter(vertex => appliedVertices.has(vertexIdentity(vertex))), ...(source.vertices ?? [])].map(vertex => [vertexIdentity(vertex), vertex])).values()],
+              edges: [...new Map([...current.edges.filter(edge => appliedEdges.has(edgeIdentity(edge))), ...(source.edges ?? [])].map(edge => [edgeIdentity(edge), edge])).values()],
+            } : source;
+            const operations = reconciliationBatches(reconcileFacts(desired, current, scope, ownership), definition.contract, unit);
+            try {
+              for (const operation of operations) {
+                if (controller.signal.aborted) throw new Error(`${import.meta.filename}:639: reconciliation cancelled for unit ${unit.unitId}`);
+                // 0039 item 24: the key is the digest of the canonical request, its preconditions included, so a batch
+                // decided from a different read is a different operation and never the receipt of an earlier one.
+                const preconditions = current.revisions === undefined ? [] : batchPreconditions(operation, current.revisions, unit.kind);
+                const request = { unitId: unit.unitId, key: `reconcile-${createHash('sha256').update(canonical({ operation, preconditions })).digest('hex')}`, operation, ...(preconditions.length === 0 ? {} : { preconditions }) };
+                await askHost('facts.apply', request);
+                for (const vertex of operation.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
+                for (const edge of operation.edges ?? []) appliedEdges.add(edgeIdentity(edge));
+                for (const vertex of operation.removals ?? []) appliedVertices.delete(vertexIdentity(vertex));
+                for (const edge of operation.edgeRemovals ?? []) appliedEdges.delete(edgeIdentity(edge));
+              }
+              break;
+            } catch (error) {
+              // The graph moved under the read this plan was decided from: reread and replan what still differs, never
+              // replay the same decided batch. A writer that keeps contending ends the unit instead of looping for ever.
+              if (attempt >= reconciliationAttempts || !revisionConflict(error)) throw error;
+            }
           }
           // A successful reconciliation also confirms facts whose values did not need a write.
           for (const vertex of desired.vertices ?? []) appliedVertices.add(vertexIdentity(vertex));
@@ -872,7 +968,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       if (waiter !== undefined) {
         pendingOfHost.delete(message.id);
         if (message.error === undefined) waiter.resolve(message.result);
-        else waiter.reject(new Error(message.error.message));
+        else waiter.reject(new HostRefusal(message.error.message, message.error.data?.cause));
       }
       return;
     }
