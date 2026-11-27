@@ -16,9 +16,10 @@
  * - item 35: the catalogue counts the kinds the fill took and marks the kind nothing in the repository answers with
  *   «неприменимо» and the reason of what was searched.
  *
- * Run with `MADARCH_FOUNDATION_E2E=1` after `bun run build` in `wiki/app`, as an ordinary user. The fill runs
- * unconfined (`MADARCH_PLUGIN_SANDBOX=off`), as every walk with an agent does: the session's model and the plugin's
- * reader stand outside a plugin's sandbox, and this walk is about the graph and the pages, not the confinement.
+ * Run with `MADARCH_FOUNDATION_E2E=1` after `bun run build` in `wiki/app`, as an ordinary user. The fill and the fill
+ * role the walk serves for a page's file reads run unconfined (`unconfined: true`, the host's environment for the reads),
+ * as every walk with an agent does: the session's model and the plugin's reader stand outside a plugin's sandbox, and
+ * this walk is about the graph and the pages, not the confinement.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -37,9 +38,11 @@ import { SYSTEM_VERTEX_DEFINITIONS } from '../src/graph/system-contract.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { readKinds, type EdgeDecl, type KindsManifest } from '../src/product/manifest/kinds.js';
+import { closeFileTextSessions } from '../src/plugin/file-reads.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { StartedServer } from '../src/server/http.js';
 import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
+import { startFileTextServer } from './file-text-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -130,6 +133,12 @@ const FILE_FOLDERS: Readonly<Record<string, string>> = {
  */
 const SLICE_KINDS = ['product', 'code.repository', 'code.directory', 'code.file', 'code.module', 'c4.component', 'code.debt'] as const;
 const SLICE_EDGES = ['product.uses-repository', 'code.contains', 'code.imports', 'code.file-repository', 'code.directory-repository', 'code.file-directory'] as const;
+
+/**
+ * What the scripted agent says it searched when no entity of a kind stands in the repository (decision 0039, item 35):
+ * the turn's `searched` words are the reason the catalogue's row shows.
+ */
+const SEARCHED = 'the folders and the files of the repository in the graph';
 
 /**
  * A scripted ACP agent: it starts nothing of its own, it speaks the session's MCP server over HTTP (initialize,
@@ -253,7 +262,7 @@ const answerFor = async (task) => {
   }
   // A kind the repository answers nothing of: the agent searched the folders and the code, found no entity of it, and
   // says so — an inapplicable end names what was searched and stands on the evidence it read (decision 0039, item 35).
-  return { vertices: [], edges: [], end: { state: 'inapplicable', searched: 'the folders and the files of the repository in the graph', evidence: [evidenceOf('README.md', 1)] } };
+  return { vertices: [], edges: [], end: { state: 'inapplicable', searched: '${SEARCHED}', evidence: [evidenceOf('README.md', 1)] } };
 };
 
 createInterface({ input: process.stdin }).on('line', async (line) => {
@@ -577,6 +586,10 @@ let fillState = '';
 let fillUnits: readonly { readonly unitId: string; readonly state: string; readonly attempts?: number; readonly summary?: string }[] = [];
 let unread: readonly { readonly repository: string; readonly path: string; readonly reason: string }[] = [];
 let filled: Promise<void> | undefined;
+/** The store owner the fill prepared: kept open while the wiki serves, because the file-text queue stands on its store. */
+let storeOwner: Awaited<ReturnType<typeof createTestDatabaseOwner>> | undefined;
+/** The fill role the walk serves: the answerer of a page's file reads (decision 0037), stopped with the walk. */
+let fileTexts: Awaited<ReturnType<typeof startFileTextServer>> | undefined;
 
 run('the foundation slice on a product the test builds itself', () => {
   // What the walk asks the fill for, in the order their turns run: the repository's facts, the modules and components
@@ -608,11 +621,17 @@ run('the foundation slice on a product the test builds itself', () => {
       const fake = join(root, 'scripted-agent.ts');
       const record = join(root, 'turns.jsonl');
       writeFileSync(fake, FAKE);
-      const previousSandbox = process.env['MADARCH_PLUGIN_SANDBOX'];
-      process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
       const store = productStoreFolder(folder, knowledgeRootOf(home));
       mkdirSync(join(store, 'graph'), { recursive: true });
       const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
+      storeOwner = owner;
+      // The fill runs unconfined, as every walk with an agent does: the plugins of this walk are its own, and the host's
+      // sandbox needs a cgroup of the account's, which a walk does not always have (src/plugin/cgroup.ts). A plugin's
+      // own file read (plugins/imports reads every file through the host's core reader) takes the mode from this
+      // environment, so it is set for the fill and put back before the case ends: a case that leaves it changed fails
+      // the run's guard (`test/plugin-sandbox-guard.ts`).
+      const previousSandbox = process.env['MADARCH_PLUGIN_SANDBOX'];
+      process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
       try {
         await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
         const targets = WANTED.filter((name) => manifest?.kinds.has(name) === true);
@@ -625,6 +644,7 @@ run('the foundation slice on a product the test builds itself', () => {
           limits: { attemptSeconds: 900 },
           prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
           sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); },
+          unconfined: true,
           pluginAgent: { adapter: { id: 'foundation-agent', command: process.execPath, args: [fake, record] }, connect: connectAcpAgent },
         });
         if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
@@ -632,10 +652,15 @@ run('the foundation slice on a product the test builds itself', () => {
         fillUnits = result.units;
         unread = result.unread ?? [];
       } finally {
-        await owner.close();
         if (previousSandbox === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
         else process.env['MADARCH_PLUGIN_SANDBOX'] = previousSandbox;
       }
+      // A page's `source` read asks the store's file-text queue (decision 0037, src/graph/read-worker.ts), and the fill
+      // role answers it: the walk's server is the api role alone, so the walk serves the queue as
+      // test/file-text-server.ts does, on the store the fill prepared. The reader runs unconfined like the fill (the
+      // variable is passed as the host's environment, never set on this process). The owner stays open while the wiki
+      // reads, and afterAll stops this server and closes the owner before the fixture's folder goes.
+      fileTexts = await startFileTextServer(owner, { env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' } });
       if (existsSync(record)) turns = readFileSync(record, 'utf8').trim().split('\n').filter((line) => line !== '').map((line) => JSON.parse(line) as Turn);
       server = await startPreparedServer({ productFolder: folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
       session = await mcpSession(home, folder);
@@ -653,6 +678,11 @@ run('the foundation slice on a product the test builds itself', () => {
     await session?.close();
     await browser?.close();
     await server?.stop();
+    // The fill role the walk served is stopped before the store its owner holds, and the owner before the folder goes.
+    await fileTexts?.stop();
+    // The plugin session that answered the pages' reads is closed here, as a fill role closes its own sessions.
+    await closeFileTextSessions();
+    await storeOwner?.close();
     // The store the fixture made runs its own PostgreSQL server; the owners are closed, and this waits for any server
     // whose data directory stands under the fixture's folder before the folder goes: a finished walk leaves nothing.
     if (root !== '') await stopServersUnder(root);
@@ -957,6 +987,8 @@ run('the foundation slice on a product the test builds itself', () => {
       if (!fileText.includes("import { price } from './pricing';")) problems.push(`the file page shows no text of the file: it reads ${JSON.stringify(fileText.slice(0, 800))}`);
       if (!fileText.includes('src/orders')) problems.push('the file page names not the folder it stands in');
       if (!fileText.includes(REPOSITORY)) problems.push('the file page names not the repository it belongs to');
+      // The text came through the fill role and not from a stub: the page's read was a job the queue answered.
+      if ((fileTexts?.served() ?? 0) === 0) problems.push('the file page read its text outside the fill role: the file-text queue answered nothing');
       await shotAt('file', 1440, 900);
       await shotAt('file', 390, 844);
       // The component: its name, its responsibility, and the way to the folder that realises it.
@@ -1013,8 +1045,10 @@ run('the foundation slice on a product the test builds itself', () => {
       // The kind nothing in this repository answers: the agent searched and found none, and the row says so, with why.
       const debt = (await rowText('code.debt')).replace(/\s+/gu, ' ').trim();
       if (debt === '') problems.push('the catalogue lists no row for code.debt');
-      else if (!debt.includes('неприменимо')) problems.push(`the catalogue's row for code.debt reads ${JSON.stringify(debt)}, and no file of the repository states a debt, so the kind is inapplicable here (decision 0039, item 35)`);
-      else if (!/неприменимо\s*\S.*\S/u.test(debt.replace('неприменимо', 'неприменимо '))) problems.push(`the catalogue's row for code.debt names no reason for its inapplicability: ${JSON.stringify(debt)}`);
+      // The locale renders the mark capitalised («Неприменимо»), so the compare folds case; the row then states the fact
+      // item 35 asks for — why nothing answers: the words of what the agent searched.
+      else if (!/неприменимо/iu.test(debt)) problems.push(`the catalogue's row for code.debt reads ${JSON.stringify(debt)}, and no file of the repository states a debt, so the kind is inapplicable here (decision 0039, item 35)`);
+      else if (!debt.includes(SEARCHED)) problems.push(`the catalogue's row for code.debt names no reason for its inapplicability: it reads ${JSON.stringify(debt)}, and the agent searched ${JSON.stringify(SEARCHED)}`);
       await page.screenshot({ path: join(SHOTS, 'catalogue-1440.png') });
       await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
       await new Promise((accept) => setTimeout(accept, 250));
