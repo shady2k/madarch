@@ -2730,13 +2730,17 @@ export class KnowledgeProduct {
     const kinds = graphKindsOf(manifest);
     const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest));
     const repository = this.singleRepository();
-    const files = await this.productFiles();
-    const dismissals = { items: await graphProblemDismissals(graph), problems: [] };
-    const dismissed = new Set(dismissals.items.map((item) => item.id));
-    const markdown = new Map((await graphMarkdownEntities(graph, pageOpinionKinds(manifest, kinds.generated))).entities.map((entity) => [entity.id, entity] as const));
+    const [files, dismissals, markdownRead, documents] = await Promise.all([
+      this.productFiles(),
+      graphProblemDismissals(graph),
+      graphMarkdownEntities(graph, pageOpinionKinds(manifest, kinds.generated)),
+      documentOpinions(graph, manifest),
+    ]);
+    const dismissed = new Set(dismissals.map((item) => item.id));
+    const markdown = new Map(markdownRead.entities.map((entity) => [entity.id, entity] as const));
     const resolver = new Resolver({
       graph,
-      documents: await documentOpinions(graph, manifest),
+      documents,
       markdown,
       declared: (kind) => manifest.kinds.has(kind),
       repositories: () => [...this.pins.keys()].sort(byCodePoint),

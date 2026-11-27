@@ -34,6 +34,9 @@ check current existence and source activity. A page counts current attachments, 
 is sound. The historical proof and current applicability are evaluated independently, as in decision 0039 items 19
 and 31.
 
+The listing only evaluates evidence applicability when the published catalogue enables that rule. The file index,
+dismissals, Markdown opinions, and document endpoints are independent reads and can be prepared concurrently.
+
 ## Out of scope
 
 - The code rules' whole-kind reads (2 475 ms of the same listing).
@@ -49,10 +52,11 @@ and 31.
 ## Where it is seen
 
 Kind: command
-Place: `bun test test/knowledge-anchors.test.ts test/current-evidence.test.ts test/catalogue-starter-kinds.test.ts`
+Place: `bun test test/knowledge-anchors.test.ts test/current-evidence.test.ts test/catalogue-starter-kinds.test.ts test/problems-findings.test.ts`
 
 1. A product with no document reads no edge kind and no endpoint kind for its documents.
 2. A document keeps its repository's name without reading the repository role's edge kinds.
 3. A slow edge read is never waited for when the document role holds nothing.
 4. Evidence pagination skips unrelated kinds and reports the same current vertex and edge evidence in cursor order.
 5. The cold Problems listing and count each answer in under one second on a populated fixture.
+6. A catalogue without the evidence applicability rule still shows its configured findings and does not run that check.
