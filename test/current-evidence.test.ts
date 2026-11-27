@@ -58,7 +58,19 @@ test('current evidence reports unavailable retained bytes without rewriting hist
     expect(page.rows.some(row => row.key['id'] === 'ended')).toBe(false);
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').length).toBeGreaterThan(0);
     expect(page.rows.filter(row => row.key['id'] === 'unavailable').every(row => row.applicability === 'unavailable')).toBe(true);
+    const activeLinks = await owner.run(async tx => (await tx.query<{ cursor: string; opinion: string; fact: string }>(`
+      SELECT (origin.uid::text || ':' || evidence.uid::text) COLLATE "C" AS cursor,
+        origin.uid::text AS opinion, fact.key->>'id' AS fact
+      FROM edge evidence JOIN entity kind ON kind.id=evidence.entity_id
+      JOIN node origin ON origin.id=evidence.from_node JOIN assertion a ON a.assertion_id=origin.id
+      JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
+      JOIN edge subject ON subject.id=attachment.subject_edge_id JOIN node fact ON fact.id=subject.to_node
+      WHERE kind.name='system.assertion-evidence' AND a.property IN ('$exists','title')
+        AND fact.key->>'id' IN ('available','unavailable')
+      ORDER BY cursor`)).rows);
+    expect(activeLinks).toHaveLength(4);
     const seen: string[] = [];
+    const cursors: string[] = [];
     const scans: string[] = [];
     const measuredOwner: DatabaseOwner = {
       ...owner,
@@ -74,7 +86,10 @@ test('current evidence reports unavailable retained bytes without rewriting hist
       const next = await vanishedCurrentEvidence(measuredOwner, evidenceContract, { limit: 1, ...(after === undefined ? {} : { after }) });
       seen.push(...next.rows.map(row => row.opinion));
       after = next.next;
+      if (after !== undefined) cursors.push(after);
     } while (after !== undefined);
+    expect(cursors).toEqual(activeLinks.slice(0, -1).map(link => link.cursor));
+    expect(seen).toEqual(activeLinks.filter(link => link.fact === 'unavailable').map(link => link.opinion));
     expect(seen).toEqual(page.rows.map(row => row.opinion));
     expect(new Set(seen).size).toBe(seen.length);
     expect(scans).toEqual([]);

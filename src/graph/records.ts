@@ -245,7 +245,7 @@ export interface StaleEvidence {
   readonly state: import('./evidence-read.js').EvidenceState;
 }
 
-interface CurrentEvidenceLink {
+type CurrentEvidenceLink = {
   readonly cursor: string;
   readonly assertion_uid: string;
   readonly property: string;
@@ -256,7 +256,7 @@ interface CurrentEvidenceLink {
   readonly target_kind: string;
   readonly target_key: Record<string, KeyValueDraft>;
   readonly discriminator: string;
-}
+};
 
 async function currentEvidenceLinks(tx: SqlExecutor, after: string, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
   return (await tx.query<CurrentEvidenceLink>(`
