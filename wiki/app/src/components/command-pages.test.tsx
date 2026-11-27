@@ -172,28 +172,261 @@ test('a run that published nothing is failed, never partial', async () => {
   } finally { await page.close(); }
 });
 
-test('unit counts use the locale plural rules for one, few, many and twenty-one', async () => {
-  const cases: readonly [number, string, string][] = [
-    [1, 'из 1 единицы', 'of 1 unit'],
-    [2, 'из 2 единиц', 'of 2 units'],
-    [5, 'из 5 единиц', 'of 5 units'],
-    [21, 'из 21 единицы', 'of 21 units'],
-  ];
-  for (const language of ['ru', 'en'] as const) {
-    await setWikiLanguage(language);
-    for (const [total, russian, english] of cases) {
-      runAnswer = {
-        ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: total,
-        units: Array.from({ length: total }, (_, at) => ({ unitId: `disk:demo.alpha`, stage: 'disk:demo.alpha', scope: `file:${String(at)}`, status: 'published', phase: 'done', generation: 1, attempts: 1 })),
-        groups: [],
-      };
-      const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
-      try {
-        const text = page.container.textContent ?? '';
-        expect(text).toContain(language === 'ru' ? russian : english);
-      } finally { await page.close(); }
-    }
+/**
+ * The run page counts entities, never the engine's work units (madarch-64o5.106): an empty agent turn that spent its
+ * tokens and wrote nothing says so with the cause it can state, and a run that wrote entities states what it created.
+ */
+const EMPTY_EXCHANGE = {
+  ...EXCHANGE,
+  steps: [],
+  opened: [],
+  given: { ...EXCHANGE.given, files: [], filesTotal: 0, prompt: 'Fill the requested kind from its manifest definition.\nTask: {"kind":"demo.beta"}' },
+  returned: { text: '{"vertices":[],"end":{"state":"complete"}}', bytes: 43, cut: false },
+};
+
+const AGENT_PLAN = {
+  plugins: [{ name: 'agent-fill', labels: { en: 'Agent', ru: 'Агент' }, agent: true }, { name: 'disk', labels: { en: 'Disk', ru: 'Диск' }, agent: false }],
+  selectedKinds: ['demo.beta'], requestedKinds: ['demo.beta'], added: [], order: ['agent-fill'], units: [{ plugin: 'agent-fill', kind: 'demo.beta' }],
+  kinds: [{ ...BETA }], needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }], errors: [], skipped: [], emptyKinds: [], pluginsOnly: false,
+};
+
+/** One finished run whose agent unit published nothing: the answer the owner saw after 70 000 tokens. */
+function emptyAgentRun(outcomes: readonly Record<string, unknown>[]): unknown {
+  return {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 1, records: 0,
+    selected: ['demo.beta'], order: ['demo.beta'],
+    groups: [{ kind: 'demo.beta', group: 'docs', plugin: 'agent-fill', done: 1, total: 1, state: 'published', phase: 'done' }],
+    units: [{ unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'published', phase: 'done', generation: 1, attempts: 1 }],
+    entities: [], outcomes, agentExchanges: [EMPTY_EXCHANGE],
+    events: [
+      { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 1 stage: agent-fill:demo.beta' },
+      { seq: 2, at: new Date(Date.now() - 1000).toISOString(), stage: 'agent-fill:demo.beta', unitId: 'agent-fill:demo.beta', type: 'unit-published', summary: 'agent-fill:demo.beta completed; accepted operations remain visible' },
+    ],
+  };
+}
+
+test('an agent run that wrote nothing says so with the cause, never «опубликовано»', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = emptyAgentRun([{ unitId: 'agent-fill:demo.beta', generation: 1, kind: 'demo.beta', plugin: 'agent-fill', outcome: 'empty', produced: 0 }]);
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Ничего не создано: агент не нашёл ни одной сущности');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toContain('Ничего не создано: агент не нашёл ни одной сущности');
+    // The agent stated no reason, so the page says what it did with what it was handed: nothing opened, no tool call.
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')?.textContent).toBe('Агент не открыл ни одного файла и не сделал ни одного вызова инструментов.');
+    const text = page.container.textContent ?? '';
+    expect(text).not.toContain('Опубликовано');
+    expect(text).not.toContain('единиц');
+    expect(text).not.toContain('из 1');
+  } finally { await page.close(); }
+});
+
+test('an agent run that wrote nothing states the reason its producer gave', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = emptyAgentRun([{ unitId: 'agent-fill:demo.beta', generation: 1, kind: 'demo.beta', plugin: 'agent-fill', outcome: 'abstained', produced: 0, reason: 'вид читает docs/domains/**/*.md, а таких файлов в продукте нет' }]);
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')?.textContent).toBe('Причина: вид читает docs/domains/**/*.md, а таких файлов в продукте нет');
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Ничего не создано: агент не нашёл ни одной сущности');
+  } finally { await page.close(); }
+});
+
+test('a deterministic plugin that found nothing says so with its own reason', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 1, records: 0,
+    selected: ['demo.alpha'], order: ['demo.alpha'], groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' }],
+    units: [{ unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'demo.alpha', status: 'published', phase: 'done', generation: 1, attempts: 1 }],
+    entities: [], outcomes: [{ unitId: 'disk:demo.alpha', generation: 1, kind: 'demo.alpha', plugin: 'disk', outcome: 'inapplicable', produced: 0, reason: 'В репозитории нет docs/domains' }],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Ничего не создано: плагин не нашёл ни одной сущности');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')?.textContent).toBe('Причина: В репозитории нет docs/domains');
+    expect(page.container.textContent).not.toContain('единиц');
+  } finally { await page.close(); }
+});
+
+test('a run that wrote entities counts them in the reader\'s words, per kind and in the title', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 2, records: 12,
+    selected: ['demo.alpha', 'demo.gamma'], order: ['demo.alpha', 'demo.gamma'],
+    groups: [
+      { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+      { kind: 'demo.gamma', group: 'docs', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+    ],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'demo.alpha', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.gamma', stage: 'disk:demo.gamma', scope: 'demo.gamma', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    ],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 3, updated: 1 }, { plugin: 'disk', kind: 'demo.gamma', created: 2, updated: 0 }],
+    outcomes: [{ unitId: 'disk:demo.alpha', generation: 1, kind: 'demo.alpha', plugin: 'disk', outcome: 'completed', produced: 12 }],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    // One kind states its own label; several kinds state the entities themselves, each with the right plural form.
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Создано 5 сущностей, изменено 1 сущность');
+    const lines = [...page.container.querySelectorAll('[data-testid="fill-run-group-result"]')].map((one) => one.textContent ?? '');
+    expect(lines[0]).toContain('Файлы: создано 3, изменено 1');
+    expect(lines[1]).toContain('Сценарии: создано 2');
+    const text = page.container.textContent ?? '';
+    expect(text).not.toContain('единиц');
+    expect(text).not.toContain('Опубликовано');
+  } finally { await page.close(); }
+});
+
+test('several kinds state the entities they wrote, with the Russian plural forms', async () => {
+  const cases: readonly [number, string][] = [[1, 'Создано 1 сущность'], [2, 'Создано 2 сущности'], [5, 'Создано 5 сущностей'], [21, 'Создано 21 сущность']];
+  for (const [created, words] of cases) {
+    runAnswer = {
+      ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 1, records: created,
+      selected: ['demo.alpha', 'demo.gamma'], order: ['demo.alpha', 'demo.gamma'],
+      groups: [
+        { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+        { kind: 'demo.gamma', group: 'docs', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+      ],
+      units: [{ unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'demo.alpha', status: 'published', phase: 'done', generation: 1, attempts: 1 }],
+      entities: [{ plugin: 'disk', kind: 'demo.alpha', created, updated: 0 }, { plugin: 'disk', kind: 'demo.gamma', created: 0, updated: 1 }],
+      outcomes: [],
+    };
+    const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+    try {
+      expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe(`${words}, изменено 1 сущность`);
+    } finally { await page.close(); }
   }
+});
+
+test('a failed run states its failure, never that its agent found nothing', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = {
+    ...(emptyAgentRun([{ unitId: 'agent-fill:demo.beta', generation: 1, kind: 'demo.beta', plugin: 'agent-fill', outcome: 'failed', produced: 0 }]) as Record<string, unknown>),
+    state: 'failed', phase: 'failed', publishedUnits: 0, records: 0,
+    groups: [{ kind: 'demo.beta', group: 'docs', plugin: 'agent-fill', done: 0, total: 1, state: 'failed', phase: 'failed' }],
+    units: [{ unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'failed', phase: 'failed', generation: 1, attempts: 1 }],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    // The run did not finish, so its title says that; the group's own line says its phase, never that it searched.
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Запуск завершился ошибкой.');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toBe('Ошибка');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')).toBeNull();
+    const text = page.container.textContent ?? '';
+    expect(text).not.toContain('Ничего не создано');
+    expect(text).not.toContain('не открыл ни одного файла');
+  } finally { await page.close(); }
+});
+
+test('a stopped run states that it was stopped, never that its agent found nothing', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = {
+    ...(emptyAgentRun([]) as Record<string, unknown>),
+    state: 'cancelled', phase: 'stopped', publishedUnits: 0, records: 0,
+    groups: [{ kind: 'demo.beta', group: 'docs', plugin: 'agent-fill', done: 0, total: 1, state: 'cancelled', phase: 'cancelled' }],
+    units: [{ unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'cancelled', phase: 'cancelled', generation: 1, attempts: 1 }],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Запуск остановлен.');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toBe('Отменено');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('Ничего не создано');
+  } finally { await page.close(); }
+});
+
+test('a skipped group states its skip, never that its producer found nothing', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 1, records: 3,
+    selected: ['demo.alpha', 'demo.beta'], order: ['demo.alpha', 'demo.beta'],
+    groups: [
+      { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+      { kind: 'demo.beta', group: 'docs', plugin: 'agent-fill', done: 0, total: 1, state: 'skipped', phase: 'skipped' },
+    ],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'skipped', phase: 'skipped', skippedBecause: 'run ended', generation: 1, attempts: 1 },
+    ],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 3, updated: 0 }], outcomes: [], agentExchanges: [EMPTY_EXCHANGE],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Файлы: создано 3');
+    const lines = [...page.container.querySelectorAll('[data-testid="fill-run-group-result"]')].map((one) => one.textContent ?? '');
+    expect(lines[0]).toBe('Файлы: создано 3 · Готово');
+    expect(lines[1]).toBe('Пропущено');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('Ничего не создано');
+  } finally { await page.close(); }
+});
+
+test('a group still waiting when its run ended states its wait, never that it found nothing', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(), remainingMs: null, publishedUnits: 0, records: 0,
+    selected: ['demo.beta'], order: ['agent-fill'],
+    groups: [{ kind: 'demo.beta', group: 'docs', plugin: 'agent-fill', done: 0, total: 1, state: 'waiting', phase: 'waiting' }],
+    units: [{ unitId: 'agent-fill:demo.beta', stage: 'agent-fill:demo.beta', scope: 'demo.beta', status: 'planned', phase: 'waiting', generation: 1, attempts: 0 }],
+    entities: [], outcomes: [], agentExchanges: [],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    // The run is over, so the group's line is settled, but the group never searched: it only states its own phase.
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toBe('Ожидает');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('Ничего не создано');
+  } finally { await page.close(); }
+});
+
+test('a group that changed nothing says so, never that its agent opened nothing', async () => {
+  planAnswer = { plan: AGENT_PLAN };
+  runAnswer = emptyAgentRun([{ unitId: 'agent-fill:demo.beta', generation: 1, kind: 'demo.beta', plugin: 'agent-fill', outcome: 'unchanged', produced: 0 }]);
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Ничего не изменено: всё уже было записано');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toContain('Ничего не изменено');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('не открыл ни одного файла');
+  } finally { await page.close(); }
+});
+
+test('an agent group is named as an agent even before the plan is read', async () => {
+  // The plan is read apart from the run and is absent here: the agent's own exchange names its producer.
+  runAnswer = emptyAgentRun([]);
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Ничего не создано: агент не нашёл ни одной сущности');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toContain('агент не нашёл ни одной сущности');
+    expect(page.container.querySelector('[data-testid="fill-run-group-cause"]')?.textContent).toBe('Агент не открыл ни одного файла и не сделал ни одного вызова инструментов.');
+  } finally { await page.close(); }
+});
+
+test('a run that only changed entities starts its title with a capital', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: 2, records: 3,
+    selected: ['demo.alpha', 'demo.gamma'], order: ['demo.alpha', 'demo.gamma'],
+    groups: [
+      { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+      { kind: 'demo.gamma', group: 'docs', plugin: 'disk', done: 1, total: 1, state: 'published', phase: 'done' },
+    ],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.gamma', stage: 'disk:demo.gamma', scope: 'scenario', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    ],
+    entities: [{ plugin: 'disk', kind: 'demo.alpha', created: 0, updated: 2 }, { plugin: 'disk', kind: 'demo.gamma', created: 0, updated: 1 }], outcomes: [],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Изменено 3 сущности');
+  } finally { await page.close(); }
+});
+
+test('the runs list states a run that wrote nothing as nothing created, never as a published unit', async () => {
+  runAnswer = { ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, records: 0, publishedUnits: 1 };
+  const page = await render([section('runs', 'runs', {})]);
+  try {
+    const summary = page.container.querySelector('[data-testid="runs-summary"]')?.textContent ?? '';
+    expect(summary).toContain('Ничего не создано');
+    expect(summary).not.toContain('единиц');
+    expect(summary).not.toContain('Опубликовано');
+  } finally { await page.close(); }
 });
 
 test('a finished partial run shows its final state, not a remaining time, and names its skipped units', async () => {
@@ -211,7 +444,7 @@ test('a finished partial run shows its final state, not a remaining time, and na
     expect(page.container.querySelector('[data-testid="fill-run-final"]')?.getAttribute('data-phase')).toBe('partial');
     expect(page.container.querySelector('[data-testid="fill-run-final-title"]')?.textContent).toContain('не полностью');
     expect(page.container.querySelector('[data-testid="fill-run-time"]')?.textContent).not.toContain('Осталось');
-    expect(page.container.querySelector('[data-testid="fill-run-units"]')?.textContent).toContain('не выполнилась единица');
+    expect(page.container.querySelector('[data-testid="fill-run-units"]')?.textContent).toContain('не удалось заполнить');
     expect(page.container.querySelector('[data-testid="fill-run-retry"]')).not.toBeNull();
   } finally { await page.close(); }
 });
@@ -782,7 +1015,10 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     const text = page.container.textContent ?? '';
     expect(text).toContain('Код · Файлы · disk');
     expect(text).not.toContain('Сценарии');
-    expect(text).toContain('Опубликовано 2 из 3 единиц');
+    // A live run states its progress by the work in flight, never by a count of the engine's units.
+    expect(page.container.querySelector('[data-testid="fill-run-result-title"]')?.textContent).toBe('Заполняется…');
+    expect(page.container.querySelector('[data-testid="fill-run-group-result"]')?.textContent).toBe('Выполняется');
+    expect(text).not.toContain('единиц');
     expect(text).not.toContain('demo.alpha');
     // The log is the words of the run's events, never its trace: no machine path and no forty-character id.
     expect(text).toContain('Запуск начат.');

@@ -2488,7 +2488,7 @@ export class KnowledgeProduct {
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
-      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary, detail: runId !== undefined }))!;
       const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
       return { ...detail, agentExchanges: exchanges };
     }));

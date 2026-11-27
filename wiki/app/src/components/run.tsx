@@ -106,6 +106,106 @@ function seconds(value: number): number {
   return Math.max(0, Math.round(value / 1000));
 }
 
+/**
+ * What one group of a kind and a plugin came to, in entities (madarch-64o5.106): the run page counts what the producer
+ * created and changed, never the engine's own work units. The producer's own answer supplies the cause when it wrote
+ * nothing, and the agent's exchange says what it opened when it stated no reason of its own.
+ */
+export interface GroupResult {
+  readonly created: number;
+  readonly updated: number;
+  /** Whether the plugin runs an agent, as the plan declares it. */
+  readonly agent: boolean;
+  /** The group's own phase: done, failed, skipped, cancelled, waiting or running. */
+  readonly phase: string;
+  /** The producer's own stated reason, when it stated one. */
+  readonly reason?: string;
+  /** The producer's own answer: completed, unchanged, empty, inapplicable, abstained or failed. */
+  readonly outcome?: string;
+  /** What the group's agent opened, how many files it was handed, and how many tool calls it made. */
+  readonly opened?: number;
+  readonly files?: number;
+  readonly calls?: number;
+}
+
+export function groupResultOf(run: FillRunDetail, group: FillRunGroup, agentOf: (plugin: string) => boolean): GroupResult {
+  const counted = (run.entities ?? []).find((one) => one.plugin === group.plugin && one.kind === group.kind);
+  const outcomes = (run.outcomes ?? []).filter((one) => one.plugin === group.plugin && one.kind === group.kind);
+  const exchange = (run.agentExchanges ?? []).find((one) => one.unit === `${group.plugin}:${group.kind}` || one.unit.startsWith(`${group.plugin}:${group.kind}@`) || one.unit.startsWith(`${group.plugin}:${group.kind}#`));
+  const reason = outcomes.find((one) => one.reason !== undefined)?.reason;
+  return {
+    created: counted?.created ?? 0, updated: counted?.updated ?? 0,
+    // The plan names which plugins run an agent, but it is read apart from the run and may be absent: the agent's own
+    // exchange names its producer too.
+    agent: agentOf(group.plugin) || exchange !== undefined, phase: group.phase,
+    ...(reason === undefined ? {} : { reason }),
+    ...(outcomes.at(-1) === undefined ? {} : { outcome: outcomes.at(-1)!.outcome }),
+    ...(exchange === undefined ? {} : { opened: exchange.opened.length, files: exchange.given.filesTotal, calls: exchange.steps.filter((step) => step.kind === 'tool-call').length }),
+  };
+}
+
+/**
+ * What a producer created and changed of one kind, in the reader's words. The label stands first and the counts after
+ * it, so no label needs a case the manifest does not declare: a kind's names are one and many, and «создано 3» reads the
+ * same for any of them.
+ */
+export function writtenWords(kind: string, created: number, updated: number, t: TFunction): string {
+  if (created > 0 && updated > 0) return t('knowledge.fillRun.result.kindCounts', { kind, created, updated });
+  return created > 0 ? t('knowledge.fillRun.result.kindCreated', { kind, count: created }) : t('knowledge.fillRun.result.kindUpdated', { kind, count: updated });
+}
+
+/**
+ * What a group's own work came to, in the reader's words: the entities it wrote, or why it wrote none. Only a group that
+ * finished its own search says what it found: a failure, a stop, a skip, and a group whose run ended before it was
+ * reached (it waits) are not a search that found nothing, so those groups state their phase and never «ничего не
+ * создано».
+ */
+export function groupResultWords(result: GroupResult, kind: string, t: TFunction): string | null {
+  if (result.created > 0 || result.updated > 0) return writtenWords(kind, result.created, result.updated, t);
+  if (result.outcome === 'unchanged') return t('knowledge.fillRun.result.unchanged');
+  if (result.phase !== 'done') return null;
+  return t(result.agent ? 'knowledge.fillRun.result.nothingAgent' : 'knowledge.fillRun.result.nothingPlugin');
+}
+
+/** Why a group that wrote nothing wrote nothing, as the page states it beside its result. */
+export function groupCauseWords(result: GroupResult, t: TFunction): string | null {
+  if (result.created > 0 || result.updated > 0) return null;
+  if (result.reason !== undefined && result.reason.trim() !== '') return t('knowledge.fillRun.result.reason', { reason: result.reason });
+  // Only a producer that looked and found nothing says what it opened: a group that failed, was stopped, was skipped, was
+  // never reached, or changed nothing is not one of them.
+  if (result.outcome === 'unchanged' || result.phase !== 'done') return null;
+  if (!result.agent) return null;
+  if (result.calls === 0 && (result.opened ?? 0) === 0) return t('knowledge.fillRun.result.agentOpenedNone');
+  if ((result.opened ?? 0) === 0 && (result.files ?? 0) > 0) return t('knowledge.fillRun.result.agentOpenedZero', { files: result.files });
+  return null;
+}
+
+/** The run's own result, as its title states it: what it wrote, or that it wrote nothing and who found nothing. */
+export function runResultWords(run: FillRunDetail, agentOf: (plugin: string) => boolean, labelOf: (kind: string) => string | undefined, t: TFunction): string {
+  const counted = (run.entities ?? []).filter((one) => one.created + one.updated > 0);
+  if (counted.length > 0) {
+    const kinds = [...new Set(counted.map((one) => one.kind))];
+    if (kinds.length === 1) {
+      const kind = kinds[0]!;
+      return writtenWords(labelOf(kind) ?? kind, counted.reduce((sum, one) => sum + one.created, 0), counted.reduce((sum, one) => sum + one.updated, 0), t);
+    }
+    const created = counted.reduce((sum, one) => sum + one.created, 0), updated = counted.reduce((sum, one) => sum + one.updated, 0);
+    return [
+      ...(created === 0 ? [] : [t('knowledge.fillRun.result.createdEntities', { count: created })]),
+      // The first words of a title start with a capital: «Изменено 2 сущности», never «изменено 2 сущности».
+      ...(updated === 0 ? [] : [t(created === 0 ? 'knowledge.fillRun.result.updatedEntitiesFirst' : 'knowledge.fillRun.result.updatedEntities', { count: updated })]),
+    ].join(', ');
+  }
+  // A run that failed or was stopped wrote nothing because it did not finish, and its title says so, never that its
+  // producers looked and found nothing.
+  if (run.phase === 'failed' || run.phase === 'stopped') return t(`knowledge.fillRun.final.${run.phase}`);
+  const outcomes = run.outcomes ?? [];
+  if (outcomes.length > 0 && outcomes.every((one) => one.outcome === 'unchanged')) return t('knowledge.fillRun.result.unchanged');
+  const producers = new Set(run.groups.filter((group) => group.total > 0).map((group) => groupResultOf(run, group, agentOf).agent ? 'agent' : 'plugin'));
+  if (producers.size === 1) return t(producers.has('agent') ? 'knowledge.fillRun.result.nothingAgent' : 'knowledge.fillRun.result.nothingPlugin');
+  return t('knowledge.fillRun.result.nothing');
+}
+
 /** A final run's ending as the reader reads it: day, month, hour and minute, never a second year line. */
 function shortMoment(iso: string, language: string): string {
   const date = new Date(iso);
@@ -248,6 +348,8 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return labels?.[language] ?? labels?.['en'];
   };
   const labelOf = (kind: string): string | undefined => catalogue.find((one) => one.kind === kind)?.many;
+  // The plan declares which plugins run an agent, so the page names the producer that found nothing as it is.
+  const agentOf = (plugin: string): boolean => plan.data?.plan.plugins?.find((one) => one.name === plugin)?.agent === true;
   const groupLabelOf = (kind: string): string | undefined => {
     const held = catalogue.find((one) => one.kind === kind);
     if (held?.group === null || held?.group === undefined) return undefined;
@@ -276,6 +378,8 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const elapsed = live ? Math.max(run.elapsedMs, now - started.getTime()) : run.elapsedMs;
   const terminal = run.final || ['succeeded', 'partial', 'failed', 'stopped'].includes(run.phase);
   const emptyWords = t(terminal ? 'knowledge.fillRun.noUnits' : 'knowledge.fillRun.planning');
+  // The run's own headline is what it wrote in entities, never the engine's work units (madarch-64o5.106).
+  const resultWords = run.units.length === 0 ? emptyWords : terminal ? runResultWords(run, agentOf, labelOf, t) : t('knowledge.fillRun.active');
   const agentUsage = run.agentUsage;
   const finished = run.finishedAt === null ? null : shortMoment(run.finishedAt, language);
   const liveRun = run;
@@ -288,7 +392,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
             <Badge variant={terminal ? 'solid' : 'outline'} className="px-2 py-0.5 text-small" data-testid="fill-run-status-badge">{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
             {finished === null ? null : <Text className="text-small text-muted" data-testid="fill-run-ended">{finished}{t('common.separator')}{t('knowledge.fillRun.duration', { seconds: seconds(elapsed) })}</Text>}
           </Stack>
-          <CardTitle>{run.units.length === 0 ? emptyWords : t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}</CardTitle>
+          <CardTitle data-testid="fill-run-result-title">{resultWords}</CardTitle>
           {terminal && (run.phase === 'partial' || run.phase === 'failed') ? (
             <Alert variant="problem" className="mt-2" data-testid="fill-run-final" data-phase={run.phase}>
               <AlertTitle data-testid="fill-run-final-title">{t('knowledge.fillRun.attention')}</AlertTitle>
@@ -302,7 +406,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           {names.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-selection">{names.join(', ')}</Paragraph>}
         </CardHeader>
         <CardContent>
-          {run.units.length > 0 && !terminal ? <Progress value={run.publishedUnits} max={run.units.length} aria-label={t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })} /> : null}
+          {run.units.length > 0 && !terminal ? <Progress value={run.publishedUnits} max={run.units.length} aria-label={t('knowledge.fillRun.progress')} /> : null}
           <Paragraph className="mt-3 text-small" data-testid="fill-run-time">
             {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })}{terminal ? null : <>{t('common.separator')}{run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}</>}
           </Paragraph>
@@ -325,22 +429,27 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
       </Card>
 
       <Card data-testid="fill-run-groups">
-        <CardHeader><CardTitle>{t('knowledge.fillRun.result')}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('knowledge.fillRun.resultTitle')}</CardTitle></CardHeader>
         <CardContent>
           <PlainList className="m-0 list-none p-0">
             {liveRun.groups.filter((group) => group.total > 0).map((group) => {
               const kind = labelOf(group.kind);
               if (kind === undefined) return null;
               const area = groupLabelOf(group.kind);
+              const result = groupResultOf(liveRun, group, agentOf);
+              const settled = group.state === 'published' || terminal;
+              const words = groupResultWords(result, kind, t);
+              const because = groupCauseWords(result, t);
               return (
-                <ListItem key={`${group.kind}:${group.plugin}`} className="mb-3" data-testid="fill-run-group">
+                <ListItem key={`${group.kind}:${group.plugin}`} className="mb-3" data-testid="fill-run-group" data-created={result.created} data-updated={result.updated}>
                   <Paragraph className="m-0">
                     {area === undefined || area === kind ? null : <Text className="text-muted">{area}{t('common.separator')}</Text>}
                     {kind}{t('common.separator')}{pluginName(group.plugin) === undefined ? <InlineCode>{group.plugin}</InlineCode> : pluginName(group.plugin)}
                   </Paragraph>
-                  <Paragraph className="m-0 text-small text-muted">
-                    {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total, count: group.total })}{t('common.separator')}{t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
+                  <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-group-result">
+                    {settled && words !== null ? <>{words}{t('common.separator')}</> : null}{t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
                   </Paragraph>
+                  {because === null ? null : <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-group-cause">{because}</Paragraph>}
                   {group.total > 0 ? <Progress value={group.done} max={group.total} aria-label={kind} /> : null}
                 </ListItem>
               );

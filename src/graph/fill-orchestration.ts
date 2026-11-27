@@ -132,6 +132,19 @@ export interface PublicationRecord {
   readonly publishedAt: number;
 }
 
+/**
+ * What one producer group of a run wrote, in entities (madarch-64o5.106): the vertices of its kind the run brought into
+ * the graph, and the ones that stood before the run and whose fields the run changed. A re-assertion of values that
+ * already stood is neither, so a run over an unchanged kind says it created nothing.
+ */
+export interface RunEntityCount {
+  /** The plugin whose unit wrote the entities: the group's producer. */
+  readonly plugin: string;
+  readonly kind: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
 export interface FillEnd {
   readonly runId: string;
   readonly state: string;
@@ -376,9 +389,9 @@ async function runStagePlansIn(tx:SqlExecutor,runId:string):Promise<readonly Run
  const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
  return (await related(tx,'system.run-stage','system.run-stage-run',uid)).map(row=>({runId,stageId:String(row.values.stage_name),plannedAt:Number(row.values.planned_at),units:Number(row.values.units),publications:Number(row.values.publications)})).sort((a,b)=>byCodePoint(a.stageId,b.stageId));
 }
-/** A run's units, from the run: its own `system.unit-run` edges name them. */
-async function runUnits(tx:SqlExecutor,runId:string):Promise<AssertionRecord[]>{
- const uid=await readRunGraphUidIn(tx,runId);if(!uid)return [];
+/** A run's units, from the run: its own `system.unit-run` edges name them. The run's node uid is passed when the caller has read it already. */
+async function runUnits(tx:SqlExecutor,runId:string,knownUid?:string):Promise<AssertionRecord[]>{
+ const uid=knownUid??await readRunGraphUidIn(tx,runId);if(!uid)return [];
  const run=await read(tx,'system.run',uid);if(!run)return [];
  return await readRecordsIn(tx,'vertex','system.unit',unitFields,(await edgeRowsIn(tx,'system.unit-run','to',[run.id])).map(edge=>edge.from));
 }
@@ -408,6 +421,81 @@ export async function readRunPlanningSnapshot(database:FillStateSnapshotDatabase
 }
 export async function readRunPublicationCount(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).length);}
 export async function readRunPublicationFacts(database:FillStateSnapshotDatabase,runId:string):Promise<number>{return snapshotTransaction(database,async tx=>(await publications(tx,runId)).reduce((sum,row)=>sum+row.record.facts,0));}
+/**
+ * The plugin and the kind one unit fills, from its own name and its plan's. A unit's name is the stage's path and the
+ * plan's unit id (`plugin-turns/disk:code.file`), and the plan records that id whole in `plan_stage_unit_name`; the
+ * stage's prefix is therefore cut from the name and never a `lastIndexOf('/')`, because a plan's unit id names a file
+ * (`...@docs/domains/one.md`).
+ */
+function stageUnitPartsOf(values:Readonly<Record<string,unknown>>):{readonly plugin:string;readonly kind:string}|undefined{
+ const name=String(values['unit_name']??''),stage=String(values['stage_name']??''),planned=values['plan_stage_unit_name'],prefix=`${stage}/`;
+ const stageUnitId=typeof planned==='string'&&planned!==''?planned:stage!==''&&name.startsWith(prefix)?name.slice(prefix.length):name;
+ const colon=stageUnitId.indexOf(':');
+ if(colon<=0)return undefined;
+ const kind=(stageUnitId.slice(colon+1).split('@')[0]??'').split('#')[0]??'';
+ return kind===''?undefined:{plugin:stageUnitId.slice(0,colon),kind};
+}
+/**
+ * What a run wrote, entity by entity, per producer group (madarch-64o5.106). The graph links every assertion a unit's
+ * operation wrote to that unit (`system.assertion-unit`, the lineage the plugin host binds), so a vertex of the kind the
+ * unit fills is the run's own work: one whose first existence assertion comes at or after the run's own first assertion is
+ * created, and one that stood before it and that the run asserted anew is updated. A repeat of values that already stand
+ * is neither: the writer reuses the standing assertion, which was recorded before the run's line, and the lineage the
+ * unit binds then names that older assertion rather than the run's own work.
+ *
+ * The boundary is the run's own line in the store, the database's `recorded_sequence`, never a window of the host's
+ * clock: a live run reads the groups that have finished already, and no rounding of milliseconds or step of the clock
+ * can drop a record the run wrote.
+ *
+ * One statement reads the whole run: its cost is the assertions the run's units wrote, never the size of the store, and
+ * no query is spent per entity.
+ */
+export async function readRunEntityCounts(database:FillStateSnapshotDatabase,runId:string):Promise<readonly RunEntityCount[]>{
+ return await snapshotTransaction(database,async tx=>{
+  const run=await readRunGraphUidIn(tx,runId);
+  if(run===undefined)return [];
+  const units=(await runUnits(tx,runId,run)).flatMap(record=>{
+   const parts=stageUnitPartsOf(record.values);
+   return parts===undefined?[]:[{uid:record.uid,plugin:parts.plugin,kind:parts.kind}];
+  });
+  if(units.length===0)return [];
+  const rows=await withSpan('graph.orchestration.entity-counts',{'db.system':'postgres'},async()=>await tx.query<{plugin:string;kind:string;created:string;updated:string}>(`WITH held AS (
+     SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(unit_uid uuid,plugin text,kind text)
+    ), run_line AS (
+     SELECT min(line.recorded_sequence) AS seq
+     FROM node run_node
+     JOIN edge subject ON subject.to_node=run_node.id
+     JOIN assertion_vertex_subject attachment ON attachment.subject_edge_id=subject.id
+     JOIN assertion line ON line.assertion_id=attachment.assertion_id
+     WHERE run_node.uid=$2::uuid
+    ), touched AS (
+     SELECT held.plugin,held.kind,subject.to_node AS entity
+     FROM held
+     JOIN node u ON u.uid=held.unit_uid
+     JOIN edge lineage ON lineage.to_node=u.id
+     JOIN entity lineage_kind ON lineage_kind.id=lineage.entity_id AND lineage_kind.name='system.assertion-unit'
+     JOIN assertion a ON a.assertion_id=lineage.from_node
+     JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
+     JOIN edge subject ON subject.id=attachment.subject_edge_id
+     JOIN node target ON target.id=subject.to_node
+     JOIN entity target_kind ON target_kind.id=target.entity_id
+     WHERE target_kind.name=held.kind
+      AND a.recorded_sequence>=(SELECT seq FROM run_line)
+     GROUP BY held.plugin,held.kind,subject.to_node
+    ), started AS (
+     SELECT touched.plugin,touched.kind,min(a.recorded_sequence) AS began
+     FROM touched
+     JOIN edge subject ON subject.to_node=touched.entity
+     JOIN assertion_vertex_subject attachment ON attachment.subject_edge_id=subject.id
+     JOIN assertion a ON a.assertion_id=attachment.assertion_id AND a.property='$exists' AND a.operation='assert'
+     GROUP BY touched.plugin,touched.kind,touched.entity
+    )
+    SELECT plugin,kind,count(*) FILTER (WHERE began>=(SELECT seq FROM run_line))::text AS created,
+      count(*) FILTER (WHERE began<(SELECT seq FROM run_line))::text AS updated
+    FROM started GROUP BY plugin,kind ORDER BY plugin COLLATE "C",kind COLLATE "C"`,[JSON.stringify(units.map(unit=>({unit_uid:unit.uid,plugin:unit.plugin,kind:unit.kind}))),run]));
+  return rows.rows.map(row=>({plugin:row.plugin,kind:row.kind,created:Number(row.created),updated:Number(row.updated)}));
+ });
+}
 export async function unitPlanIn(tx:SqlExecutor,unitId:string,generation:number):Promise<UnitPlanRecord|null>{
  const uid=await readUnitGraphUidIn(tx,unitId,generation);if(!uid)return null;
  const unit=await read(tx,'system.unit',uid),v=unit?.values;if(!v||v.planned_at===undefined)return null;
