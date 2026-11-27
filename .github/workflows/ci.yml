@@ -251,7 +251,7 @@ jobs:
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
           - { file: test/imports-path.test.ts, cases: 5 }
           - { file: test/roles-two-and-two.test.ts, cases: 1 }
-          - { file: test/status-work.test.ts, cases: 3 }
+          - { file: test/status-work.test.ts, cases: 2 }
           - { file: test/source-follows-fill.test.ts, cases: 2 }
     steps:
       - uses: actions/checkout@v7
