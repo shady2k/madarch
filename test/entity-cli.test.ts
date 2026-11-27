@@ -1,7 +1,9 @@
 import { expect, spyOn, test } from 'bun:test';
 import { entityCommand } from '../src/product/entity-cli.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { authoredEntity } from '../src/graph/authored.js';
+import { AuthoredRefusal, authoredEntity } from '../src/graph/authored.js';
+import { GraphRefusal } from '../src/graph/validation.js';
+import { releaseRoot } from '../src/product-wiki/release-assets.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { withSystemContract } from '../src/graph/system-contract.js';
@@ -61,7 +63,16 @@ test('entity CLI parses exactly the fields advertised by the authored door', asy
     }
     const invalid = await run(['update', 'person', made.body.entity.uid, '--count', '"bad"']);
     expect(invalid.code).toBe(2);
-    expect(invalid.body.error.message).toContain('/values/count: expected integer');
+    expect(invalid.body.error.message).toMatch(/^\/values\/count: expected integer/u);
+    // A refusal names its reason, never the engine's own location (madarch-64o5.203).
+    expect(invalid.body.error.message).not.toContain('$bunfs');
+    expect(invalid.body.error.message).not.toContain(releaseRoot());
+    let printed = '';
+    const plain = await entityCommand(['update', 'person', made.body.entity.uid, '--count', '"bad"', '--product', '/tmp/cli-fixture'], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
+    expect(plain).toBe(2);
+    expect(printed.split('\n')[0]).toMatch(/^\/values\/count: expected integer/u);
+    expect(printed).not.toContain('$bunfs');
+    expect(printed).not.toContain(releaseRoot());
     const read = await run(['show', 'person', made.body.entity.uid]);
     expect(read.code).toBe(0);
     expect(read.body.fields.map((field: { name: string }) => field.name)).toContain('installation');
@@ -71,3 +82,39 @@ test('entity CLI parses exactly the fields advertised by the authored door', asy
     await owner.close();
   }
 }, 30_000);
+
+test('entity CLI refusals keep the reason and field and drop an engine location they already carry', async () => {
+  const bundle = '/$bunfs/root/madarch-linux-arm64';
+  const authored = spyOn(KnowledgeProduct.prototype, 'authored');
+  const status = spyOn(KnowledgeProduct.prototype, 'status').mockRejectedValue(new Error('no fill in refusal fixture'));
+  const close = spyOn(KnowledgeProduct.prototype, 'close').mockResolvedValue(undefined);
+  async function run(args: string[]) {
+    let output = '';
+    const code = await entityCommand([...args, '--product', '/tmp/cli-fixture', '--json'], { stdout: { write: text => { output += text; } } });
+    return { code, body: JSON.parse(output) };
+  }
+  try {
+    // A refusal raised with the bundle's own location, as a compiled binary's import.meta.path names it.
+    authored.mockRejectedValueOnce(new Error(`${bundle}:1: field "queue_position": expected integer`));
+    const held = await run(['show', 'task', 'a1']);
+    expect(held.code).toBe(2);
+    expect(held.body.error).toEqual({ message: 'field "queue_position": expected integer', field: 'queue_position' });
+    // A refusal that wrapped another repeats the location, because each error names its own module.
+    authored.mockRejectedValueOnce(new AuthoredRefusal(400, new GraphRefusal('/values/queue_position', 'integer', 'bad').message));
+    const repeated = await run(['show', 'task', 'a1']);
+    expect(repeated.code).toBe(2);
+    expect(repeated.body.error.message).toBe('/values/queue_position: expected integer, got "bad"');
+    expect(repeated.body.error.message).not.toContain('$bunfs');
+    expect(repeated.body.error.message).not.toContain(releaseRoot());
+    // The plain-text answer is the same reason, with no location of the engine either.
+    authored.mockRejectedValueOnce(new AuthoredRefusal(400, new GraphRefusal('/values/queue_position', 'integer', 'bad').message));
+    let printed = '';
+    const plain = await entityCommand(['show', 'task', 'a1', '--product', '/tmp/cli-fixture'], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
+    expect(plain).toBe(2);
+    expect(printed.split('\n')[0]).toBe('/values/queue_position: expected integer, got "bad"');
+    expect(printed).not.toContain('$bunfs');
+    expect(printed).not.toContain(releaseRoot());
+  } finally {
+    authored.mockRestore(); status.mockRestore(); close.mockRestore();
+  }
+});
