@@ -1,16 +1,31 @@
 /** A named run's durable projection; trace usage never supplies lifecycle or identity. */
 import { type FillStateSnapshotDatabase, readRun, readRunUnitHistory } from '../graph/fill-state.js';
-import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../graph/fill-orchestration.js';
+import { readProgress, readRunEntityCounts, readRunPlans, readRunPublicationCount, readRunPublicationFacts, type RunEntityCount } from '../graph/fill-orchestration.js';
+import { readProducerOutcomes } from '../graph/producer-outcomes.js';
+import type { ProducerRunOutcome } from '../fill/producer-outcomes.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
 import type { FillRunView } from './model.js';
 import { SKIPPED_UNIT_PHASE, type UnitState, isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
 
 
-export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId: string, options: { readonly now: number; readonly agentUsage?: AgentUsageReport | null; readonly summary?: FillRunView }) {
+export interface FillRunDetailOptions {
+  readonly now: number;
+  readonly agentUsage?: AgentUsageReport | null;
+  readonly summary?: FillRunView;
+  /**
+   * Read the run's own detail: what each producer answered, and what the run wrote in entities (madarch-64o5.106). The
+   * runs list leaves it out, so a history of many runs spends no read on each one's entities.
+   */
+  readonly detail?: boolean;
+}
+
+export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId: string, options: FillRunDetailOptions) {
   const run = await readRun(owner, runId);
   if (run === null) return null;
-  const [units, events, plans, publishedUnits, records] = await Promise.all([
+  const [units, events, plans, publishedUnits, records, outcomes, entities] = await Promise.all([
     readRunUnitHistory(owner, runId), readProgress(owner, runId), readRunPlans(owner, runId, { history: true }), readRunPublicationCount(owner, runId), readRunPublicationFacts(owner, runId),
+    options.detail === true ? readProducerOutcomes(owner, { runId }) : Promise.resolve([] as readonly ProducerRunOutcome[]),
+    options.detail === true ? readRunEntityCounts(owner, runId) : Promise.resolve([] as readonly RunEntityCount[]),
   ]);
   const phase = runPhaseOf(run.state);
   const finished = isFinalRunPhase(phase);
@@ -40,5 +55,9 @@ export async function readFillRunDetail(owner: FillStateSnapshotDatabase, runId:
     units: units.map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, scope: unit.scopeKey, status: unit.state, phase: unitPhaseOf(unit.state), final: isFinalUnitPhase(unitPhaseOf(unit.state)), ...(unit.context.skippedBecause === undefined || unit.context.skippedBecause === null ? {} : { skippedBecause: unit.context.skippedBecause }), generation: unit.generation, attempts: unit.context.attempt })),
     events: events.map((event) => ({ seq: event.seq, at: new Date(event.at).toISOString(), stage: event.stage, unitId: event.unitId, type: event.kind, summary: event.summary })),
     records, publishedUnits, agentUsage: options.summary?.agentUsage ?? options.agentUsage ?? null,
+    ...(options.detail === true ? {
+      outcomes: outcomes.map((outcome) => ({ unitId: outcome.unitId, generation: outcome.generation, kind: outcome.kind, plugin: outcome.plugin, outcome: outcome.outcome, produced: outcome.produced, ...(outcome.reason === undefined ? {} : { reason: outcome.reason }) })),
+      entities,
+    } : {}),
   };
 }

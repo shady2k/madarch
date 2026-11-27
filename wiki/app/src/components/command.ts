@@ -66,7 +66,7 @@ export interface FillPlanAnswer {
 }
 
 export interface FillPlanView {
-  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>> }[];
+  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>>; readonly agent: boolean }[];
   readonly selectedKinds: readonly string[];
   readonly requestedKinds: readonly string[];
   readonly added: readonly { readonly kind: string; readonly neededBy: string }[];
@@ -447,6 +447,27 @@ export interface AgentExchangeView {
   readonly failure: string | null;
 }
 
+/** One producer unit's own answer (madarch-64o5.106): what it concluded, and the reason it stated. */
+export interface FillRunOutcome {
+  readonly unitId: string;
+  readonly generation: number;
+  readonly kind: string;
+  readonly plugin: string;
+  /** completed, unchanged, empty, inapplicable, abstained or failed. */
+  readonly outcome: string;
+  /** The facts the unit asserted. */
+  readonly produced: number;
+  readonly reason?: string;
+}
+
+/** What one producer group of a run wrote, in entities of the kind it fills (madarch-64o5.106). */
+export interface FillRunEntityCount {
+  readonly plugin: string;
+  readonly kind: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
 /** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
@@ -467,6 +488,9 @@ export interface FillRunDetail {
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
+  /** What each producer answered, and what the run wrote in entities: read for the run's own page, absent in a listing. */
+  readonly outcomes?: readonly FillRunOutcome[];
+  readonly entities?: readonly FillRunEntityCount[];
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
   /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
   readonly agentExchanges?: readonly AgentExchangeView[];

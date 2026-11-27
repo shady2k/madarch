@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Страница прогона: что создано, а что нет — madarch-64o5.106</title>
+<style>
+  :root { color-scheme: dark; --bg:#12131a; --card:#1b1d27; --line:#2e3142; --text:#e7e8ee; --muted:#9ea3b5; --ok:#6dd3a3; --bad:#e8837a; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .note { color:var(--muted); margin:0 0 24px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  .card h2 { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 12px; }
+  .badge { display:inline-block; border-radius:999px; padding:2px 10px; font-size:12px; border:1px solid var(--line); }
+  .title { font-size:17px; margin:10px 0 6px; }
+  .group { border-top:1px solid var(--line); margin-top:14px; padding-top:12px; }
+  .group p { margin:2px 0; }
+  .small { font-size:13px; color:var(--muted); }
+  .old .title { color:var(--bad); }
+  .new .title { color:var(--ok); }
+</style>
+</head>
+<body>
+<h1>Прогон заполнения: счёт сущностей вместо единиц работы</h1>
+<p class="note">madarch-64o5.106 · пустой агентский прогон после 70 000 токенов и прогон, который записал сущности.</p>
+<div class="row">
+  <section class="card old">
+    <h2>Было</h2>
+    <span class="badge">Завершён</span>
+    <p class="title">Опубликовано 1 из 1 единиц</p>
+    <p class="small">Токены: 57833 вход · 41 выход · 70290 всего</p>
+    <p class="small">Записано фактов: 0</p>
+    <div class="group">
+      <p>Домены · agent-fill</p>
+      <p class="small">Опубликовано 1 из 1 единиц · Опубликовано</p>
+    </div>
+  </section>
+  <section class="card new">
+    <h2>Стало</h2>
+    <span class="badge">Завершён</span>
+    <p class="title">Ничего не создано: агент не нашёл ни одной сущности</p>
+    <p class="small">Токены: 57833 вход · 41 выход · 70290 всего</p>
+    <p class="small">Записано фактов: 0</p>
+    <div class="group">
+      <p>Домены · agent-fill</p>
+      <p class="small">Ничего не создано: агент не нашёл ни одной сущности · Готово</p>
+      <p class="small">Агент не открыл ни одного файла и не сделал ни одного вызова инструментов.</p>
+    </div>
+    <div class="group">
+      <p>Домены · agent-fill — прогон, который записал</p>
+      <p class="small">Домены: создано 3, изменено 1 · Готово</p>
+    </div>
+  </section>
+</div>
+</body>
+</html>

@@ -39,6 +39,10 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
         <PlainList className="m-0 grid list-none gap-2 p-0">
           {read.data.runs.map((run) => {
             const failed = run.units.filter((unit) => unit.phase === 'failed').length;
+            const live = ['queued', 'running', 'paused'].includes(run.phase);
+            // A run's own line counts entities, never the engine's work units (madarch-64o5.106): a run that wrote nothing
+            // says so, instead of reading as a publication of one unit after a long agent turn.
+            const words = live ? t('runs.live') : run.records > 0 ? t('knowledge.fillRun.records', { count: run.records }) : t('knowledge.fillRun.result.nothing');
             return (
             <ListItem key={run.runId} className="rounded-lg border border-line p-3" data-testid="runs-run" data-state={run.phase}>
               <Stack className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -48,10 +52,10 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
                 <Badge variant={run.phase === 'running' || run.phase === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
                 {run.finishedAt === null ? null : <Paragraph className="m-0 text-small text-muted">{momentWords(run.finishedAt, language)}</Paragraph>}
               </Stack>
-              <Paragraph className="m-0 mt-1 text-small text-secondary" data-testid="runs-summary">
-                {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}
+              <Paragraph className="m-0 mt-1 text-small text-secondary" data-testid="runs-summary" data-records={run.records}>
+                {words}
                 {' · '}{t('runs.took', { duration: durationWords(run.elapsedMs, language) })}
-                {failed === 0 ? '' : ` · ${t('runs.failedUnits', { count: failed })}`}
+                {failed === 0 ? '' : ` · ${t('runs.failed', { count: failed })}`}
               </Paragraph>
               {/* The kinds a run asked for are one long sentence; a reader who wants them opens them. */}
               <Disclosure className="mt-1 text-small">

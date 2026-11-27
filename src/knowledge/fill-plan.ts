@@ -37,7 +37,7 @@ export interface FillPlanUnit {
 /** The whole plan of one press, as the command and the route answer it. */
 export interface FillPlanView {
   /** The plugins the manifest declares, with their names for a reader (an id when a declaration names none). */
-  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>> }[];
+  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>>; readonly agent: boolean }[];
   /** The selected kinds in the order their turns run, every dependency before its dependant. */
   readonly selectedKinds: readonly string[];
   /** The kinds the person asked for (the dependencies are the rest of `selectedKinds`). */
@@ -96,7 +96,7 @@ export function fillPlanView(
     .filter((kind) => run.outputs.get(plugin)?.has(kind) === true && !(agent(plugin) && applicability.some(mark => mark.kind === kind && mark.state === 'inapplicable')))
     .map((kind) => ({ plugin, kind })));
   const plugins = [...(manifest.plugins?.values() ?? [])]
-    .flatMap((plugin) => plugin.declaration === undefined ? [] : [{ name: plugin.declaration.name, labels: { ...(plugin.declaration.labels ?? {}) } }])
+    .flatMap((plugin) => plugin.declaration === undefined ? [] : [{ name: plugin.declaration.name, labels: { ...(plugin.declaration.labels ?? {}) }, agent: plugin.declaration.agent !== undefined }])
     .sort((left, right) => byCodePoint(left.name, right.name));
   return {
     plugins,
