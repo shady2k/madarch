@@ -237,13 +237,34 @@ async function hostMeasure(catalog:number,withdraw=false){
    const own=countedRelations.has(String(plan['Relation Name']))?(Number(plan['Actual Rows']??0)+Number(plan['Rows Removed by Filter']??0)+Number(plan['Rows Removed by Index Recheck']??0))*Number(plan['Actual Loops']??0):0;
    return own+((plan['Plans']??[]) as Record<string,unknown>[]).reduce((sum,child)=>sum+visited(child),0);
   };
+  // The lookup visits at most one tuple on each counted relation of its plan per driver row, so the
+  // plan's own probe count times the driver rows the fixture feeds it is the work of a lookup that
+  // walks nothing else.
+  const probes=(plan:Record<string,unknown>):number=>(countedRelations.has(String(plan['Relation Name']))?1:0)+((plan['Plans']??[]) as Record<string,unknown>[]).reduce((sum,child)=>sum+probes(child),0);
+  // The driver rows come from what this case itself furnishes, never from the `$4` list the lookup
+  // under test assembles: the fixture recorded two sources' assertions on every slot, the harness
+  // writes the two identity assertions before the operation runs, and the operation writes one
+  // assertion per touched slot. The direct lookup is fed by those slots' assertions, the dependency
+  // lookup by the operation's own identities. Both counts ignore the question catalogue.
+  const touchedSlots=withdraw?1:10,assertionsPerSlot=2,identityWrites=2;
+  const dependency=(sql:string)=>sql.includes('FROM edge evidence');
+  const expectedDrivers=(sql:string)=>dependency(sql)?touchedSlots+identityWrites:touchedSlots*assertionsPerSlot;
+  expect([...new Set(anchorStatements.map(statement=>dependency(statement.sql)?'dependency':'direct'))].sort()).toEqual(['dependency','direct']);
   await expect(f.owner.transaction('write',async tx=>{
    await tx.query('SET LOCAL enable_seqscan=off');
    for(const statement of anchorStatements){
     const explained=await tx.query<{'QUERY PLAN':{Plan:Record<string,unknown>}[]}>(`EXPLAIN (ANALYZE, FORMAT JSON) ${statement.sql}`,statement.values);
     const plan=explained.rows[0]!['QUERY PLAN'][0]!.Plan;
     const work=visited(plan);anchorWork+=work;
-    console.log('HOST-ANCHOR-PLAN',JSON.stringify({catalog,withdraw,sql:statement.sql,values:statement.values,work,plan}));
+    const drivers=Array.isArray(statement.values?.[3])?(statement.values[3] as readonly unknown[]).length:0;
+    const expected=expectedDrivers(statement.sql),budget=probes(plan)*expected;
+    console.log('HOST-ANCHOR-PLAN',JSON.stringify({catalog,withdraw,drivers,expected,work,budget,sql:statement.sql,values:statement.values,plan}));
+    // PostgreSQL may order the inner edge/assertion pair of the anchor join either way, which costs
+    // at most one further probe per driver row (measured: 80 against 90 visited tuples for the same
+    // ten slots); both orders stay inside the plan's own probe count, while a lookup that walked the
+    // unrelated questions, or one fed inputs the fixture never wrote, leaves it at once.
+    expect(drivers).toBeLessThanOrEqual(expected);
+    expect(work).toBeLessThanOrEqual(budget);
    }
    throw rollback;
   })).rejects.toBe(rollback);
@@ -254,7 +275,6 @@ test('operation host bounds fixed touched slots independently of unrelated quest
  const small=await hostMeasure(10),large=await hostMeasure(200);
  console.log('HOST-TOUCHED',JSON.stringify({small,large}));
  expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
- expect(large.anchorWork).toBe(small.anchorWork);
 },30000);
 
 test('operation host support withdrawal reopens only dependent resolution with bounded rows',async()=>{
@@ -263,6 +283,5 @@ test('operation host support withdrawal reopens only dependent resolution with b
  expect(small.outcome?.state).toBe('OPEN');expect(large.outcome?.state).toBe('OPEN');
  expect(small.outcome?.retracted).toBe(true);expect(large.outcome?.retracted).toBe(true);
  expect(large.total).toBe(small.total);expect(large.rows).toBe(small.rows);
- expect(large.anchorWork).toBe(small.anchorWork);
 // The baseline walks every resolved question; the measured 200-question setup exceeded 30 seconds.
 },120000);
