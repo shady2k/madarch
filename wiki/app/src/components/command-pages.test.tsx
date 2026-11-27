@@ -466,6 +466,7 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
     const alpha = page.container.querySelector('[data-testid="catalogue-kind-check-demo.alpha"]') as HTMLInputElement;
     expect(checkedOf(alpha)).toBe(true);
     expect(alpha.hasAttribute('disabled')).toBe(true);
+    expect(buttonReason(alpha)).toBe('Нужно для Сценарии');
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('Выбран 1 вид');
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('добавлена 1 зависимость');
     // The selection survives a filter that hides its group.
@@ -511,6 +512,9 @@ test('the preparation panel names a whole unfilled kind and lets a newly picked 
     const button = page.container.querySelector<HTMLButtonElement>('[data-testid="prepare-run"]')!;
     expect(button.disabled).toBe(true);
     expect(buttonReason(button)).toContain('Запускать нечего');
+    for (const disabled of page.container.querySelectorAll('button:disabled')) {
+      expect(buttonReason(disabled)?.trim().length ?? 0).toBeGreaterThan(0);
+    }
     const unfilled = page.container.querySelector<HTMLDetailsElement>('[data-testid="prepare-unfilled"]');
     expect(unfilled?.open).toBe(true);
     expect(unfilled?.textContent).toContain('Термины останутся пустыми целиком');

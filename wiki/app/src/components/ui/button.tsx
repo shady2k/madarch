@@ -40,21 +40,21 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const reasonId = useId();
   return (
     <>
-    <button
-      ref={ref}
-      className={cn(
-        'ui-button inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] outline-none transition-colors duration-150 motion-reduce:transition-none',
-        'focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
-        'disabled:pointer-events-none disabled:opacity-50',
-        variantClasses[variant],
-        sizeClasses[size],
-        className,
-      )}
-      {...props}
-      disabled={disabled}
-      aria-describedby={disabled ? [describedBy, reasonId].filter(Boolean).join(' ') : describedBy}
-    />
-    {disabled ? <span id={reasonId} className="text-small text-muted">{disabledReason}</span> : null}
+      <button
+        ref={ref}
+        className={cn(
+          'ui-button inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] outline-none transition-colors duration-150 motion-reduce:transition-none',
+          'focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
+          'disabled:pointer-events-none disabled:opacity-50',
+          variantClasses[variant],
+          sizeClasses[size],
+          className,
+        )}
+        {...props}
+        disabled={disabled}
+        aria-describedby={disabled ? [describedBy, reasonId].filter(Boolean).join(' ') : describedBy}
+      />
+      {disabled ? <span id={reasonId} className="text-small text-muted">{disabledReason}</span> : null}
     </>
   );
 });

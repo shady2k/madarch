@@ -199,7 +199,7 @@ export function KitPage(): ReactElement {
       <KitSection title={state('componentButton')}>
         <KitState label={state('default')}><Button variant="default" size="default">{state('action')}</Button></KitState>
         <KitState label={state('ghost')}><Button size="default">{state('action')}</Button></KitState>
-        <KitState label={state('disabled')}><Button variant="default" size="default" disabled>{state('action')}</Button></KitState>
+        <KitState label={state('disabled')}><Button variant="default" size="default" disabled disabledReason={state('required')}>{state('action')}</Button></KitState>
         <KitState label={state('componentIcon')}><ShellIconLink href="/" aria-label={state('hint')}><CircleHelpIcon aria-hidden="true" size={18} /></ShellIconLink></KitState>
       </KitSection>
 
@@ -299,7 +299,7 @@ export function KitPage(): ReactElement {
 
       <KitSection title={state('componentDialog')} description={state('overlayHint')}>
         <KitState label={state('open')}>
-          <DialogPreview title={state('notice')} description={state('description')} footer={<Button size="default" disabled>{state('disabled')}</Button>}>
+          <DialogPreview title={state('notice')} description={state('description')} footer={<Button size="default" disabled disabledReason={state('required')}>{state('disabled')}</Button>}>
             <Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert>
           </DialogPreview>
         </KitState>

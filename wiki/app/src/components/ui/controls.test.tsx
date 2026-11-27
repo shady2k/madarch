@@ -45,11 +45,11 @@ test('a disabled button shows its reason beside it and preserves an existing des
   );
   await act(async () => show(true));
   const button = container.querySelector('button')!;
-  const reason = button.nextElementSibling;
+  const reason = button.nextElementSibling!;
   expect(button.disabled).toBe(true);
-  expect(reason?.textContent).toBe('Choose a kind first');
-  expect(reason?.hasAttribute('hidden')).toBe(false);
-  expect(button.getAttribute('aria-describedby')?.split(' ')).toEqual(['help', reason?.id]);
+  expect(reason.textContent).toBe('Choose a kind first');
+  expect(reason.hasAttribute('hidden')).toBe(false);
+  expect(button.getAttribute('aria-describedby')?.split(' ')).toEqual(['help', reason.id]);
   await act(async () => show(false));
   expect(container.textContent).not.toContain('Choose a kind first');
   expect(container.querySelector('button')?.getAttribute('aria-describedby')).toBe('help');

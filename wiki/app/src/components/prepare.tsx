@@ -185,7 +185,10 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   if (planRead.error !== null) return <Alert variant="problem" data-testid="prepare-error"><AlertDescription>{planRead.error}</AlertDescription></Alert>;
   if (plan === undefined) return <Skeleton className="h-10 w-80" data-testid="prepare-loading" />;
 
-  const deferredKinds = pluginsOnly ? skipped.filter((entry) => entry.applicability === undefined && planKindOf(plan, entry.kind)?.agentOnly) : [];
+  const deferredKinds = pluginsOnly ? skipped.filter((entry) => {
+    const kind = planKindOf(plan, entry.kind);
+    return entry.applicability === undefined && kind?.agentOnly && kind.applicability.state !== 'inapplicable';
+  }) : [];
   const unfilled = new Map([...needsAgent, ...deferredKinds].map((entry) => [entry.kind, entry]));
   const wholeKinds = [...unfilled.keys()].filter((kind) => planKindOf(plan, kind)?.agentOnly).length;
   const emptyFields = [...unfilled.values()].reduce((total, need) => total + need.fields.length, 0);
