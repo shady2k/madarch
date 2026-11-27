@@ -1243,18 +1243,21 @@ export class ReadContext {
        ), rows AS (
          SELECT * FROM filtered${after === '' ? '' : ` WHERE ${after}`}
        ), ranked AS (
-         SELECT rows.*, row_number() OVER (ORDER BY ${rankOrder}, rows.node_id::bigint) AS rn,
-                (SELECT count(*) FROM filtered) AS total
+         SELECT rows.*, row_number() OVER (ORDER BY ${rankOrder}, rows.node_id::bigint) AS rn
          FROM rows
        )
-       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`;
+       SELECT ranked.*, total.n AS total
+       FROM (SELECT count(*) AS n FROM filtered) total
+       LEFT JOIN ranked ON rn <= ${sql.param(first + 1, '::int')}
+       ORDER BY rn`;
       span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
       const answer = await this.tx.query<Record<string, unknown>>(statementSql, sql.params);
       span.setAttribute('db.rows', answer.rows.length);
       return answer;
     });
-    const values = answer.rows.map((row) => this.entityFromRow(row, lang)).filter((one): one is EntityValue => one !== undefined);
-    const total = answer.rows.length === 0 ? 0 : Number(answer.rows[0]!['total']);
+    const values = answer.rows.filter((row) => row['node_id'] !== null)
+      .map((row) => this.entityFromRow(row, lang)).filter((one): one is EntityValue => one !== undefined);
+    const total = Number(answer.rows[0]?.['total'] ?? 0);
     const page = values.slice(0, first);
     const cursorOf = (at: number, node: EntityValue): string => encodeCursor({ o: order.keys.map((one) => answer.rows[at]![`order_${String(one.at)}`] ?? null), id: node.nodeId });
     return {
@@ -1612,9 +1615,11 @@ export class ReadContext {
     }
     if (name === 'topN') {
       const n = boundedInteger(args['n'], 10, 0, 50, '/n');
+      // Match groupBy's JSON timestamp representation while ordering by the original SQL value.
+      const value = field.type === 'timestamp' ? 'to_jsonb(v.value)' : 'v.value';
       const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-        const statementSql = `WITH v AS (${filtered.sql}) SELECT node_id, value FROM v WHERE value IS NOT NULL
-         ORDER BY value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`;
+        const statementSql = `WITH v AS (${filtered.sql}) SELECT node_id, ${value} AS value FROM v WHERE v.value IS NOT NULL
+         ORDER BY v.value DESC NULLS LAST, node_id::bigint ASC LIMIT ${String(n)}`;
         span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
         const answer = await this.tx.query<Record<string, unknown>>(statementSql, filtered.params);
         span.setAttribute('db.rows', answer.rows.length);

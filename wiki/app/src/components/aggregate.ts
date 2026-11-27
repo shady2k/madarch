@@ -4,12 +4,21 @@
  * same way. The numbers are the graph's; nothing here counts a population in the browser but the rows the answer named.
  */
 import type { TFunction } from 'i18next';
-import { at } from './format.js';
+import { at, formatValue, momentWords } from './format.js';
 
 /** One row of an aggregate as a chart draws it: its label and its count. */
 export interface AggregateRow {
   readonly label: string;
   readonly value: number;
+}
+
+/** Rankings can hold a date or another scalar without a meaningful numeric scale. */
+export function rankedValue(value: unknown, language: string): number | string {
+  if (value instanceof Date || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/u.test(value))) {
+    return momentWords(formatValue(value, 'text', language), language);
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : formatValue(value, 'text', language);
 }
 
 /** The rows of a plain count, the fullest first: what a connection or a group-by answers. */

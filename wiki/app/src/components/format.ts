@@ -19,9 +19,10 @@ export function formatValue(value: unknown, format: string, language: string): s
     return `${bytes.toFixed(unit === 0 ? 0 : 1)} ${BYTE_UNITS[unit]!}`;
   }
   if (format === 'date') {
-    const date = new Date(String(value));
+    const date = value instanceof Date ? value : new Date(String(value));
     return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(language, { dateStyle: 'medium' }).format(date);
   }
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? String(value) : value.toISOString();
   if (Array.isArray(value)) return value.map((one) => formatValue(one, 'text', language)).join(', ');
   if (typeof value === 'boolean') return value ? '✓' : '—';
   if (typeof value === 'object') return JSON.stringify(value);

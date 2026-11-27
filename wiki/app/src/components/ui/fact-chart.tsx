@@ -13,24 +13,26 @@ import { Progress } from './progress.js';
  */
 export function FactChart({ display, rows, labelTitle, valueTitle, note }: {
   display: 'bar' | 'treemap' | 'timeline';
-  rows: readonly { label: string; value: number; href?: string }[];
+  rows: readonly { label: string; value: number | string; href?: string }[];
   labelTitle: string;
   valueTitle: string;
   /** The words an empty figure says, in the reader's language. */
   note: string;
 }): ReactElement {
-  const maximum = Math.max(1, ...rows.map((row) => row.value));
+  const plotted = rows.flatMap(({ label, value }) => typeof value === 'number' ? [{ label, value }] : []);
+  const showChart = plotted.length === rows.length;
+  const maximum = Math.max(1, ...plotted.map((row) => row.value));
   // A row's bar takes a line of type plus its gap; a short list stays chart-shaped rather than a single stripe.
   const height = Math.max(140, Math.min(340, rows.length * 34 + 64));
   return <div className="grid gap-4" data-display={display}>
-    {display === 'bar' && <ChartBar title={valueTitle} rows={rows.map((row) => ({ label: row.label, value: row.value }))} width={520} height={height} note={note} />}
-    {display === 'treemap' && <ChartTreemap title={valueTitle} nodes={rows.filter((row) => row.value > 0).map((row) => ({ label: row.label, value: row.value }))} width={520} height={160} note={note} />}
-    {display === 'timeline' && <ChartSparkline title={valueTitle} values={rows.map((row) => row.value)} width={480} height={96} note={note} />}
+    {showChart && display === 'bar' && <ChartBar title={valueTitle} rows={plotted} width={520} height={height} note={note} />}
+    {showChart && display === 'treemap' && <ChartTreemap title={valueTitle} nodes={plotted.filter((row) => row.value > 0)} width={520} height={160} note={note} />}
+    {showChart && display === 'timeline' && <ChartSparkline title={valueTitle} values={plotted.map((row) => row.value)} width={480} height={96} note={note} />}
     <Table>
       <TableHeader><TableRow><TableHead>{labelTitle}</TableHead><TableHead>{valueTitle}</TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((row, index) => <TableRow key={index}>
         <TableCell>{row.href === undefined ? row.label : <TextLink href={row.href}>{row.label}</TextLink>}</TableCell>
-        <TableCell>{row.value}{display !== 'treemap' && <Progress value={row.value} max={maximum} aria-label={row.label} />}</TableCell>
+        <TableCell>{row.value}{showChart && display !== 'treemap' && typeof row.value === 'number' && <Progress value={row.value} max={maximum} aria-label={row.label} />}</TableCell>
       </TableRow>)}</TableBody>
     </Table>
   </div>;

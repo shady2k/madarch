@@ -165,7 +165,7 @@ export const Bar = forwardRef<SVGSVGElement, BarProps>(
               ? row.value === highest
               : row.label === highlight;
           return (
-            <g key={row.label} data-part="mark" data-i={i}>
+            <g key={i} data-part="mark" data-i={i}>
               <text
                 x={left - 6}
                 y={mid}
