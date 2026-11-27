@@ -356,12 +356,17 @@ export class KnowledgeProduct {
     return bound;
   }
 
-  /** The API holds the server lease; isolated readers borrow only a client connection. */
+  /**
+   * The API holds the server lease; isolated readers borrow only a client connection. The store folder and the knowledge
+   * root travel with it: the read worker answers the logs page from the machine's own files, and a descriptor without
+   * them answers `Query.logs` with null, which the non-nullable field refuses (madarch-64o5.200).
+   */
   async readDescriptor(): Promise<ReadDescriptor> {
     await this.open();
     await this.followStoreFill();
-    const endpoint = clusterEndpoint(clusterPaths(storeDatabasePath(this.storeFolder())).socketDir);
-    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' } };
+    const store = this.storeFolder();
+    const endpoint = clusterEndpoint(clusterPaths(storeDatabasePath(store)).socketDir);
+    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' }, store, knowledgeRoot: this.options.storeRoot };
   }
 
   get folder(): string {
