@@ -66,3 +66,32 @@ Mockup: docs/changes/madarch-64o5.88/mockups/logs-1440-light.png
 ## Blocking questions
 
 None.
+
+## Acceptance evidence
+
+Every check ran in SkyPilot, not on this machine (the owner's rule), through `madarch-sky-test`, on the branch's own
+tree; each line names the tests' own exit status and the run's log.
+
+- Static: `bun run check` — `tsc --noEmit` exit 0 (run-20261128-002757). The chain then stops, on this branch **and on
+  the base commit `7e7dc946b` and on `origin/main` `f1917a675` alike**, at two checks this change does not turn:
+  `check:architecture` refuses three entries of `.architecture/violations.json` that no rule finds any more (both
+  `code.image` entries and the `digest` one, all `src/knowledge/graph-verdict-rules.ts`; run-20261128-002941 for the
+  base, run-20261128-003445 for `origin/main`), and `check:catalog` refuses the `everything` template's kinds whose
+  `derives-from` names a kind the manifest does not declare (`build-artifact`, `build`, `builder`, `code.image`,
+  `code.compose-service`; run-20261128-003612 for `origin/main`). `check:ui`, `check:workflows`, `check:slow-tests`,
+  `check:quarantine` and `check:tests` pass on this branch.
+- Test: `test/logs-graphql.test.ts` failed before the change with the reported
+  `Cannot return null for non-nullable field Query.logs` and passes after it (run-20261128-002610 and
+  run-20261128-002706); the file with `test/logs.test.ts` answers 8 pass, 0 fail (run-20261128-003809). The full suite
+  `MADARCH_SKIP_PERF=1 bun test test/` on a 2 CPU / 8 GB pod answers 3284 pass, 167 skip, 279 fail of 3730 tests across
+  511 files (run-20261128-004219); the failing families — the starter catalogue's schema and workflows, the CLI and
+  daemon readiness cases, the GraphQL executor — fail the same way on the base commit, checked file by file
+  (test/graphql-executor.test.ts, test/graphql-schema-route.test.ts, test/graphql-starter.test.ts,
+  test/catalogue-diagram.test.ts, test/catalogue-kind-relations.test.ts and test/api-role-first-page.test.ts: 16 fail
+  on the base `7e7dc946b` in run-20261128-020455, 17 on this branch in run-20261128-015933, and the one case that
+  differs fails on the base in isolation too, run-20261128-020900).
+- Walk: not taken here. The packaged walk of a fresh product — `madarch init`, `madarch serve`, a browser — is the
+  shared post-merge acceptance of ALX-1936; the failure is reproduced and held at the production entry point the served
+  api role calls (`KnowledgeProduct.graphql`, the operation the page sends), which is what this change moves.
+- Mutation: not run, per the stage rule (Stryker runs off the path once per assembled stage).
+- Review: pending (ALX-2008).
