@@ -3,7 +3,7 @@
 Change: madarch-64o5.152
 Base: aeacd745e
 Tasks: madarch-64o5.152
-Kind: behavior
+Kind: no-behavior
 
 ## Intent
 
@@ -83,13 +83,11 @@ person's authored read stated. Both are enforced in the same place, in the same 
 
 ## Preserved contracts
 
-- plugin-sdk/reconcile: a plugin still writes only the differences of its own source in the covered scope, removals still follow a complete, problem-free read, and a support vertex of another kind is still written without a claim.
-- fill-orchestrator/publish: a unit's facts still enter through the one writer under the host's binding, one atomic operation per batch, and the receipt still answers a replay of the same key with the same request.
+- fill-orchestrator/publish: a unit's facts still enter through the one writer under the host's binding, one atomic operation per batch, and the receipt still answers a replay of the same key with the same request. A plugin still writes only its own source's differences in the covered scope, removes facts after a complete, problem-free read, and writes support vertices of another kind without a precondition.
 - graph-queries/as-of: what a reader sees is unchanged — reconcile writes the same statements it wrote before, and a fact that was current in an earlier read is still current in a later one.
 
 ## Coverage
 
-- plugin-sdk/reconcile: static, test, review
 - fill-orchestrator/publish: static, test, review
 - graph-queries/as-of: static, test, review
 
