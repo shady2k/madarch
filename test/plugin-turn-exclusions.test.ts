@@ -72,7 +72,9 @@ await definePlugin({ name: 'exclusion-probe', version: '1.0.0', graph: false, re
     manifest: { file: join(root, 'kinds.yaml'), kinds, plugins: new Map([[plugin.id, plugin]]) },
     locks: new Map([[plugin.id, { id: plugin.id, version: '1.0.0', closure: closure.hash }]]),
     snapshots: { pins: async () => [] },
-    contract: { vertex: [], edge: [] },
+    // An edge reaches the plugin only when the product's own catalogue declares it, so the probe's four edges stand
+    // in for that declaration here.
+    contract: { vertex: [], edge: contract.edges.map((edge) => ({ name: edge.kind })) },
     releaseHashes: [closure.hash],
   } as unknown as PluginTurnWiring;
   return { root, wiring, cleanup: () => rmSync(root, { recursive: true, force: true }) };

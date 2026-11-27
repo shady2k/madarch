@@ -42,7 +42,9 @@ async function fixture(work: (held: {
     mkdirSync(home);
     const product = makeProduct(home, 'disk-support', repo, 'repo');
     seedStarterSet(product);
-    useFixturePlugins(product, ['disk']);
+    // The product kind stays with the repository producers: the product is the source of its repository reference
+    // (0039, item 1), and a fixture that drops it has no vertex for the edge to start at.
+    useFixturePlugins(product, ['disk'], ['product']);
     commitProduct(product, 'Use the real scripted disk plugin');
     const contract = await readPinnedGraphContract(product);
     await prepareTestStore(owner, { contract });
@@ -124,6 +126,18 @@ async function fixture(work: (held: {
       const gitlinks = await owner.run(tx => readKindAssertions(tx, 'vertex', 'code.gitlink', [], { contract }));
       const about = await owner.run(tx => readKindAssertions(tx, 'edge', 'code.blob-about', [], { contract }));
       const blobs = await owner.run(tx => readKindAssertions(tx, 'vertex', 'code.blob', ['digest', 'content'], { contract }));
+      const uses = await owner.run(async tx => {
+        const edges = await readKindAssertions(tx, 'edge', 'product.uses-repository', [], { contract });
+        const held: { fromKind: string; fromKey: Record<string, unknown>; toKind: string; toKey: Record<string, unknown> }[] = [];
+        for (const edge of edges) {
+          const ends = (await tx.query<{ id: string; kind: string; key: Record<string, unknown> }>(
+            'SELECT n.id::text AS id,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])', [[edge.from!, edge.to!]])).rows;
+          const from = ends.find(end => Number(end.id) === edge.from)!;
+          const to = ends.find(end => Number(end.id) === edge.to)!;
+          held.push({ fromKind: from.kind, fromKey: from.key, toKind: to.kind, toKey: to.key });
+        }
+        return held;
+      });
       const fileIds = new Set(files.map(file => file.id));
       const blobIds = new Set(blobs.map(blob => blob.id));
       const repositoryAbout = about.filter(edge => !fileIds.has(edge.to!));
@@ -133,6 +147,13 @@ async function fixture(work: (held: {
         expect(repositoryAbout).toHaveLength(2);
         expect(new Set(repositoryAbout.map(edge => edge.to)).size).toBe(2);
         expect(gitlinks).toHaveLength(0);
+        // The product that connected the repository stands as the source of its reference (0039, item 1). Its own
+        // checkout is pinned under its own id and is no repository it uses, so one edge names the linked repository.
+        expect(uses).toHaveLength(1);
+        expect(uses[0]!.fromKind).toBe('product');
+        expect(Object.values(uses[0]!.fromKey)).toContain('disk-support');
+        expect(uses[0]!.toKind).toBe('code.repository');
+        expect(uses[0]!.toKey).toEqual({ name: 'repo' });
         expect(files.length).toBeGreaterThanOrEqual(3);
         expect(fileAbout).toHaveLength(files.length);
         for (const file of files) {

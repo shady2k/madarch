@@ -14,7 +14,7 @@ async function yieldToLoop(): Promise<void> {
 
 /** Reads pinned objects itself; the host supplies only read-only mounts and pin metadata. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[]; keyEdges?: readonly { role: string }[] }[]; edges: readonly { kind: string }[] }; declaredKeyEdges?: Readonly<Record<string, readonly string[]>>; paths?: readonly string[]; keys?: readonly { repository?: string; path: string }[]; classRules?: readonly FileClassRule[]; exclude?: readonly string[] };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[]; keyEdges?: readonly { role: string }[] }[]; edges: readonly { kind: string }[] }; declaredKeyEdges?: Readonly<Record<string, readonly string[]>>; paths?: readonly string[]; keys?: readonly { repository?: string; path: string }[]; classRules?: readonly FileClassRule[]; exclude?: readonly string[]; product?: { kind: string; key: Record<string, string | number | boolean> }; productRepository?: string };
   if (!Array.isArray(inputs?.repositories)) throw new Error('disk needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [], snapshots: { digest: string; content: string; about: import('madarch-plugin-sdk').EntityRef[] }[] = [];
   // A narrowed product declares only the kinds it holds; the immutable blob is its evidence support, and the selected
@@ -43,6 +43,10 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     snapshots.push({ digest: inventoryDigest, content: inventoryContent, about: [repository] });
     const evidence = { target: inventoryTarget, commit: pin.commit };
     vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null, ...(treeSnapshot === undefined ? {} : { tree_snapshot: treeSnapshot }) }, evidence });
+    // The product that pinned this repository refers to it (0039, item 1): the host names the product's own vertex, and
+    // the edge carries the same inventory evidence as the vertex it ends at. A product with no home kind is named here
+    // by nothing, and the product's own checkout is no repository it uses, so neither states an edge.
+    if (inputs.product !== undefined && pin.repository !== inputs.productRepository) edges.push({ kind: 'product.uses-repository', from: inputs.product, to: repository, evidence });
     const folders = new Set<string>();
     // The reader narrowed the tree by the fill's paths and the product's own exclusions (madarch-64o5.83): every file it
     // answered is one the product publishes, and the long pass over them hands the loop back as it goes.

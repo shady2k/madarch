@@ -330,6 +330,26 @@
         }
       },
       {
+        "kind": "product.uses-repository",
+        "from": "product",
+        "to": "code.repository",
+        "cardinality": {
+          "from": "many",
+          "to": "many"
+        },
+        "labels": {
+          "en": {
+            "out": "uses repository",
+            "in": "used by product"
+          },
+          "ru": {
+            "out": "использует репозиторий",
+            "in": "используется продуктом"
+          }
+        },
+        "fields": []
+      },
+      {
         "kind": "code.blob-about",
         "from": "code.blob",
         "to": [

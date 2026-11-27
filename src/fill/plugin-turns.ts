@@ -22,7 +22,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
-import { fileTextKind, kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
+import { fileTextKind, homeKind, kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
+import { productEntityOf, readProduct } from '../product/manifest.js';
+import { productRepositoryId } from '../product/identity.js';
 import type { GraphContract } from '../graph/contract.js';
 import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome, sdkReference } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
@@ -461,7 +463,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   // The plugin's reads, not the catalogue's derives-from, is what makes a file the source of such an edge.
   const edgeOwner = (from: string, to: string): string | undefined =>
     outputOrder.filter((kind) => kind === from || kind === to).at(-1) ?? outputOrder.at(-1);
-  const edgeOutputs = (unit.plugin.contract?.edges ?? []).flatMap((edge) => {
+  // Only the edge kinds the product's own catalogue declares reach the unit: a plugin's contract is wider than any one
+  // product's declaration, and an edge the product does not hold has no table to be written to or read from.
+  const declaredEdgeKinds = new Set(wiring.contract.edge.map((edge) => edge.name));
+  const edgeOutputs = (unit.plugin.contract?.edges ?? []).filter((edge) => declaredEdgeKinds.has(edge.kind)).flatMap((edge) => {
     const fromKinds = typeof edge.from === 'string' ? [edge.from] : edge.from;
     const toKinds = typeof edge.to === 'string' ? [edge.to] : edge.to;
     return fromKinds.flatMap((from) => toKinds.filter((to) => support.edges.has(edge.kind) || edgeOwner(from, to) === unit.kind.name)
@@ -645,7 +650,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : catalogueAgent
         ? agentTaskOf(unit.kind, outputs)
         : { contract: outputs, kinds: [unit.kind], kind: unit.kind, files: [] };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(exclude === undefined ? {} : { exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      // The product's own vertex is the fact a producer needs to state a reference from the product to what it reads
+      // (0039, item 1): the start wrote that vertex under the same identity, and a product with no home kind in the
+      // graph has none to name, so the plugin is handed no product and states no such edge.
+      const product = productEntityOf(wiring.productFolder, { home: homeKind(wiring.manifest) }, undefined);
+      // The product's own checkout is pinned under its own identity, and it is not a repository the product uses: a
+      // product that referred to itself would say nothing a reader could follow.
+      const read = product === undefined ? undefined : readProduct(wiring.productFolder);
+      const productRepository = read?.ok === true ? productRepositoryId(read.product) : undefined;
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(product === undefined ? {} : { product: { kind: product.kind, key: product.key } }), ...(productRepository === undefined ? {} : { productRepository }), ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(exclude === undefined ? {} : { exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();
