@@ -1692,15 +1692,19 @@ async function attemptUnitPhases(
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: started.refusal.code, reason: started.refusal.reason }, job: 'completed' };
   }
   const controller = new AbortController();
-  let terminalWritten = false;
-  let attemptRaised = false;
   let heartbeatFailure: { error: unknown } | undefined;
   let touching: Promise<void> | undefined;
   const touch = setInterval(() => {
     if (touching !== undefined) return;
     touching = orchestrator.queue.heartbeat(orchestrator.queueName, request.job).then(alive => {
       if (!alive) controller.abort();
-    }).catch(error => { heartbeatFailure ??= { error }; controller.abort(); }).finally(() => { touching = undefined; });
+    }).catch(error => {
+      // A touch the database did not answer says nothing about the claim: only the queue's own `alive === false`
+      // or the fence inside `complete` says the claim lapsed. The failure is written down and the stage keeps its
+      // result, so one transient error does not abort a healthy attempt or discard what it finished (madarch-7okm).
+      heartbeatFailure ??= { error };
+      orchestrator.log(`fill-orchestrator: the touch of the claim of job ${request.job.id} failed during ${unit.unitId}; the attempt keeps its result and the completion fence decides whether the claim lapsed: ${errorText(error)}`);
+    }).finally(() => { touching = undefined; });
   }, orchestrator.limits.heartbeatSeconds * 1000 / 3);
   touch.unref?.();
   try {
@@ -1851,10 +1855,6 @@ async function attemptUnitPhases(
         await emit(orchestrator, { runId: unit.runId, at: note.at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-progress', summary: note.fraction === null ? note.note : `${note.note} (${Math.round(note.fraction * 100)}%)` });
       }
     }
-    if (heartbeatFailure !== undefined) {
-      if (failure?.kind === 'raised') throw new AggregateError([failure.thrown, heartbeatFailure.error], `the stage raised: ${failure.text}; heartbeat failed`);
-      throw heartbeatFailure.error;
-    }
     // A unit a bound of its own run stopped fails here, with that reason: another attempt meets the same bound, and a retry
     // loop that only waits out the wall is no work at all (owner's decision, 2026-11-15).
     if (failure?.kind === 'bound') {
@@ -1874,32 +1874,23 @@ async function attemptUnitPhases(
         throw error;
       }
       if (!failed) return await claimLapsed(orchestrator, unit, request.job, bound.message);
-      terminalWritten = true;
       if(failedEvent!==undefined)await orchestrator.sink?.(failedEvent);
       return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'failed',summary:bound.message,job:'failed'};
     }
     if (failure?.kind === 'stale') return await claimLapsed(orchestrator, unit, request.job, failure.message);
     if (failure?.kind === 'raised' || result === undefined) {
       const text = failure?.kind === 'raised' ? failure.text : 'it answered nothing';
-      const retried = await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${text}`, summary: `${unit.unitId} raised: ${text}` });
-      terminalWritten = retried.job !== 'none';
-      return retried;
+      return await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${text}`, summary: `${unit.unitId} raised: ${text}` });
     }
 
     if (result.outcome === 'blocked') {
       const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at: orchestrator.clock(), generation: unit.generation, fence, reason: result.reason }, progress: { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: `${unit.unitId} is blocked: ${result.reason}` } });
-      if (!blocked.ok) {
-        terminalWritten = blocked.outcome.job !== 'none';
-        return blocked.outcome;
-      }
-      terminalWritten = true;
+      if (!blocked.ok) return blocked.outcome;
 
       return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: result.reason, job: 'completed' };
     }
     if (result.outcome === 'split') {
-      const split = await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
-      terminalWritten = split.job !== 'none';
-      return split;
+      return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
     }
 
     {
@@ -1917,20 +1908,15 @@ async function attemptUnitPhases(
         if (error instanceof AttemptStaleError) return await claimLapsed(orchestrator, unit, request.job, error.message);
         throw error;
       }
-      terminalWritten = true;
       if(published!==undefined)await orchestrator.sink?.(published);
       return {claimed:true,unitId:unit.unitId,generation:unit.generation,result:'published',job:'completed'};
     }
-  } catch (error) {
-    attemptRaised = true;
-    throw error;
   } finally {
+    // The touch in flight when the attempt ended is awaited here, so a rejection it carries is settled by the
+    // catch above before the attempt returns and never reaches an unhandled-rejection handler.
     clearInterval(touch);
     await touching;
-    if (heartbeatFailure !== undefined) {
-      if (!terminalWritten && !attemptRaised) throw heartbeatFailure.error;
-      annotateSpan({ 'madarch.heartbeatFailure': String(heartbeatFailure.error) });
-    }
+    if (heartbeatFailure !== undefined) annotateSpan({ 'madarch.heartbeatFailure': String(heartbeatFailure.error) });
   }
 }
 
