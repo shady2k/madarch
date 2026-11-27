@@ -7,7 +7,7 @@ import { publishGraphDrafts } from './write.js';
 import { homedir, userInfo } from 'node:os';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexDraft, EdgeDraft } from './contract.js';
-import { withSystemContract, withAssertionContract } from './system-contract.js';
+import { PERSON_DISPLAY_LABEL_VERSION, withSystemContract, withAssertionContract } from './system-contract.js';
 import { registerGraphPrincipal, bindGraphProducer, type GraphPrincipal, type ProducerBinding } from './producer-binding.js';
 export interface InstalledSource {
   readonly producer: string;
@@ -63,15 +63,18 @@ export async function registerSystemSource(owner: DatabaseOwner, contract: Graph
   return { producer, version: options.version, kind, uid, sourceUid: uid, principal };
   });
 }
-export async function installSystemSources(owner: DatabaseOwner, contract: GraphContract): Promise<{ system: InstalledSource; person: InstalledSource }> {
+export async function installSystemSources(owner: DatabaseOwner, contract: GraphContract, authorName?: string): Promise<{ system: InstalledSource; person: InstalledSource }> {
   const system = await registerSystemSource(owner, contract, { type: 'system', installationKey: 'madarch', scope: owner.location, version: '1', label: 'Madarch' });
-  const uid = await install(owner, contract, 'person', localIdentity(), { label: userInfo().username, scope: 'local-unverified', version: '1' });
+  const uid = await install(owner, contract, 'person', localIdentity(), {
+    scope: 'local-unverified',
+    ...(authorName === undefined ? {} : { label: authorName, version: PERSON_DISPLAY_LABEL_VERSION }),
+  });
   const producer = `person:${uid}`;
   const principal = await registerGraphPrincipal(owner, { producer, version: '1', kind: 'person', uid, sourceUid: uid, principalUid: uid, scope: 'local-unverified' });
   return { system, person: { producer, version: '1', kind: 'person', uid, sourceUid: uid, principal } };
 }
-export async function installAgentSession(owner: DatabaseOwner, contract: GraphContract, session: string): Promise<InstalledSource & { sessionUid: string }> {
-  const { person } = await installSystemSources(owner, contract);
+export async function installAgentSession(owner: DatabaseOwner, contract: GraphContract, session: string, authorName?: string): Promise<InstalledSource & { sessionUid: string }> {
+  const { person } = await installSystemSources(owner, contract, authorName);
   const agent = await registerSystemSource(owner, contract, { type: 'agent', installationKey: `${person.uid}:mcp`, scope: owner.location, version: '1', label: 'Local MCP agent', principalUid: person.uid });
   const key = identity([agent.uid, session]);
   const sessionUid = await install(owner, contract, 'agent-session', key, { label: session, scope: owner.location, version: '1' });
@@ -93,20 +96,20 @@ function writableSlots(contract: GraphContract): { vertices: Record<string, read
   return { vertices: Object.fromEntries(vertices),
     edges: Object.fromEntries(contract.edge.filter((kind) => !protectedContract.edge.some((system) => system.name === kind.name)).map((kind) => [kind.name, kind.fields.map((field) => field.name)])) };
 }
-export async function personBinding(owner: DatabaseOwner, contract: GraphContract, _description?: { readonly name?: string; readonly email?: string }): Promise<ProducerBinding> {
-  const { person } = await installSystemSources(owner, withSystemContract(contract));
+export async function personBinding(owner: DatabaseOwner, contract: GraphContract, authorName?: string): Promise<ProducerBinding> {
+  const { person } = await installSystemSources(owner, withSystemContract(contract), authorName);
   return bindGraphProducer(owner, contract, { principal: person.principal, ...writableSlots(contract) });
 }
 
 /** The MCP host assigns a stable agent source; client names never select its identity. */
-export async function agentBinding(owner: DatabaseOwner, contract: GraphContract, session: string): Promise<ProducerBinding> {
-  const agent = await installAgentSession(owner, contract, session);
+export async function agentBinding(owner: DatabaseOwner, contract: GraphContract, session: string, authorName?: string): Promise<ProducerBinding> {
+  const agent = await installAgentSession(owner, contract, session, authorName);
   return bindGraphProducer(owner, contract, { principal: agent.principal, ...writableSlots(contract) });
 }
 
 /** Local host commands receive only their declared operational marker slots. */
-export async function personOperationBinding(owner: DatabaseOwner, contract: GraphContract, operation: 'problem-task' | 'authored-import'): Promise<ProducerBinding> {
-  const { person } = await installSystemSources(owner, contract);
+export async function personOperationBinding(owner: DatabaseOwner, contract: GraphContract, operation: 'problem-task' | 'authored-import', authorName?: string): Promise<ProducerBinding> {
+  const { person } = await installSystemSources(owner, contract, authorName);
   const slots = writableSlots(contract);
   const kinds = new Set(operation === 'problem-task'
     ? ['system.problem', 'system.problem-about', 'system.content-snapshot']

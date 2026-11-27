@@ -28,6 +28,7 @@
     "test/assertion-selection.test.ts": 1372,
     "test/assertion-write-batch.test.ts": 4150,
     "test/authored-http.test.ts": 4791,
+    "test/authored-identity.test.ts": 4493,
     "test/authored-import.test.ts": 10407,
     "test/authored.test.ts": 22400,
     "test/bulk-file-opinions.test.ts": 11800,
