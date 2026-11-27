@@ -15,6 +15,7 @@ import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
 import { DIAGRAM_DEPTH, DIAGRAM_AGGREGATE_ABOVE, DIAGRAM_MAX_BYTES, type DiagramAnswer } from '../render/diagram-render.js';
 import type { ReadDescriptor, ReadWork } from '../render/read-worker.js';
+import type { PoolConfig } from 'pg';
 import { LOG_LEVELS, LOG_SOURCES, logsAnswer } from '../knowledge/logs.js';
 
 declare const self: Worker;
@@ -125,15 +126,20 @@ function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<stri
 
 self.onmessage = async (event: MessageEvent<ReadWork>) => {
   let owner: DatabaseOwner | undefined;
+  let texts: ReturnType<typeof fileTextOf> | undefined;
   try {
     const asked = event.data;
     if (asked.descriptor !== undefined) owner = await createPostgresDatabaseOwner(asked.descriptor.connection);
-    const answer = asked.kind === 'graphql'
-      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder), logs: logsReaderOf(asked.descriptor) }, asked.operation)
-      : await diagram(asked, owner);
+    let answer: unknown;
+    if (asked.kind === 'graphql') {
+      texts = fileTextOf(asked.descriptor.connection, asked.descriptor.folder);
+      answer = await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: texts.read, logs: logsReaderOf(asked.descriptor) }, asked.operation);
+    } else answer = await diagram(asked, owner);
+    await texts?.close();
     await owner?.close();
     self.postMessage({ kind: 'read-complete', answer });
   } catch (error) {
+    await texts?.close().catch(() => undefined);
     await owner?.close().catch(() => undefined);
     self.postMessage({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
   }
@@ -143,14 +149,21 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
  * The read a page's `source` field answers with (decision 0037): the file's blob comes from the graph, and the bytes come
  * from the store's one queue, which the fill role answers. The read worker holds the store's connection, so it asks the
  * queue itself, and no working copy is opened.
+ *
+ * The queue stands on a database owner of its own, opened with the first `source` read and closed with the message: a
+ * `pg-boss` queue cannot stand inside the read-only snapshot `executeGraphql` holds — its work would be invisible to the
+ * fill role until the commit, and the owner refuses a queue opened inside its own transaction (`OwnWorkError`). A page
+ * that reads no source opens nothing and pays nothing.
  */
-function fileTextOf(owner: DatabaseOwner, product: string): (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined> {
+function fileTextOf(connection: PoolConfig, product: string): { read: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>; close: () => Promise<void> } {
+  let queueOwner: DatabaseOwner | undefined;
   let opened: Promise<QueueService> | undefined;
   const queue = async (): Promise<QueueService> => {
-    opened ??= openFillRunQueue(owner).then(async (held) => { await declareFileTextQueue(held); return held; });
+    queueOwner ??= await createPostgresDatabaseOwner(connection);
+    opened ??= openFillRunQueue(queueOwner).then(async (held) => { await declareFileTextQueue(held); return held; });
     return await opened;
   };
-  return async (ask) => {
+  const read = async (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }): Promise<Record<string, unknown> | undefined> => {
     // The repository is the one the product connected, read where its manifest declares it: a folder under repos/, or the
     // product folder itself, checked by the host before a byte is read.
     const held = readProduct(product);
@@ -162,4 +175,5 @@ function fileTextOf(owner: DatabaseOwner, product: string): (ask: { readonly rep
     });
     return { ...answer, blob: ask.blob, from: ask.from, ...(ask.moved ? { moved: true } : {}) };
   };
+  return { read, close: async () => { const held = queueOwner; queueOwner = undefined; opened = undefined; await held?.close(); } };
 }
