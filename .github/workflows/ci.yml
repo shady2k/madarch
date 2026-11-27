@@ -223,11 +223,11 @@ jobs:
             exit 1
           fi
 
-  # The eleven files test/slow-files.json records as green-slow, measured over 30
-  # seconds alone on a runner in runs 45758277151 and 45809866011, run here one
+  # The twelve files test/slow-files.json records as green-slow, measured over 30
+  # seconds alone on a runner in runs 45758277151, 45809866011 and 45910624124, run here one
   # job each. The shards leave out every file the list names (the shard step here
   # and scripts/run-tests.ts), so this required matrix is the blocking coverage of
-  # these eleven. Four fixtures of the list run in partition-bootstrap, not in
+  # these twelve. Four fixtures of the list run in partition-bootstrap, not in
   # `checks`: git-partition-bootstrap, h3-real-reconciliation,
   # disk-support-ownership and agent-fill-graph-mcp. Every other green-slow entry
   # runs only in the nightly slow-tests.yml, as do main's own entries in the list.
@@ -242,6 +242,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - { file: test/catalogue-kind-relations.test.ts, cases: 1 }
           - { file: test/agent-fill-e2e.test.ts, cases: 2 }
           - { file: test/db-schema-path.test.ts, cases: 5 }
           - { file: test/api-role-first-page.test.ts, cases: 1 }

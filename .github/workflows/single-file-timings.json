@@ -43,7 +43,7 @@
     "test/catalog-work-common.test.ts": 7000,
     "test/catalogue-dependencies.test.ts": 1343,
     "test/catalogue-diagram.test.ts": 22900,
-    "test/catalogue-kind-relations.test.ts": 15000,
+    "test/catalogue-kind-relations.test.ts": 31426,
     "test/catalogue-only-contracts.test.ts": 6850,
     "test/catalogue-relation-words.test.ts": 13286,
     "test/catalogue-starter-kinds.test.ts": 34296,
