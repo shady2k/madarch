@@ -182,6 +182,7 @@
     "test/graph-repeat-lineage.test.ts": 3329,
     "test/graph-repeat-scope.test.ts": 6136,
     "test/graph-resolution-amendment.test.ts": 21793,
+    "test/graph-retraction-batch.test.ts": 14476,
     "test/graph-schema-batched.test.ts": 3529,
     "test/graph-schema-fingerprint.test.ts": 7300,
     "test/graph-schema-reader.test.ts": 10700,
