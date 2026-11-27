@@ -14,7 +14,7 @@ export interface AggregateRow {
 
 /** Rankings can hold a date or another scalar without a meaningful numeric scale. */
 export function rankedValue(value: unknown, language: string): number | string {
-  if (value instanceof Date || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/u.test(value))) {
+  if (value instanceof Date || (typeof value === 'string' && value[10] === 'T')) {
     return momentWords(formatValue(value, 'text', language), language);
   }
   const numeric = Number(value);
