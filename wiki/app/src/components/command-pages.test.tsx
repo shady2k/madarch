@@ -483,26 +483,26 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
 });
 
 test('the catalogue lets a dependency cycle selection reach preparation without an agent', async () => {
-  const module = { ...BETA, kind: 'code.module', applicability: applicabilityFor('code.module') };
-  const cycle = { ...BETA, kind: 'code.cycle', applicability: applicabilityFor('code.cycle') };
+  const module = { ...BETA, kind: 'demo.module', applicability: applicabilityFor('demo.module') };
+  const cycle = { ...BETA, kind: 'demo.cycle', applicability: applicabilityFor('demo.cycle') };
   const navigation = { ...NAVIGATION, kinds: [
-    { ...NAVIGATION.kinds[1]!, kind: 'code.module', many: 'Модули' },
-    { ...NAVIGATION.kinds[2]!, kind: 'code.cycle', many: 'Циклы зависимостей' },
+    { ...NAVIGATION.kinds[1]!, kind: 'demo.module', many: 'Модули' },
+    { ...NAVIGATION.kinds[2]!, kind: 'demo.cycle', many: 'Циклы зависимостей' },
   ] };
-  planAnswer = { plan: { ...ALL_PLAN, kinds: [module, cycle], added: [{ kind: 'code.module', neededBy: 'code.cycle' }],
-    errors: [{ kind: 'code.cycle', fields: [], message: 'An input needs the agent' }] } };
+  planAnswer = { plan: { ...ALL_PLAN, kinds: [module, cycle], added: [{ kind: 'demo.module', neededBy: 'demo.cycle' }],
+    errors: [{ kind: 'demo.cycle', fields: [], message: 'An input needs the agent' }] } };
   const page = await render([section('catalogue', 'catalogue', {})], { select: '1' }, navigation);
   try {
     const button = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-prepare"]')!;
     expect(button.disabled).toBe(true);
     expect(button.nextElementSibling?.textContent).toBe('Выберите хотя бы один вид.');
-    const check = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-kind-check-code.cycle"]')!;
+    const check = page.container.querySelector<HTMLButtonElement>('[data-testid="catalogue-kind-check-demo.cycle"]')!;
     await act(async () => { check.click(); });
     await settle();
-    expect(page.container.querySelector('[data-kind="code.module"] [data-testid="catalogue-agent-line"]')?.textContent).toBe('Заполнит агент');
+    expect(page.container.querySelector('[data-kind="demo.module"] [data-testid="catalogue-agent-line"]')?.textContent).toBe('Заполнит агент');
     expect(button.disabled).toBe(false);
     await act(async () => { button.click(); });
-    expect(page.opened).toContain('/p/prepare?kinds=code.cycle');
+    expect(page.opened).toContain('/p/prepare?kinds=demo.cycle');
   } finally { await page.close(); }
 });
 
