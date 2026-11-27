@@ -119,9 +119,9 @@ export async function graphFiles(owner: DatabaseOwner, contract: GraphContract):
       if (!vertex.fields.some(declaration => declaration.name === field)) throw new Error(`${manifest.file}:${fileRole.line}: semantic role names undeclared field ${kind}.${field}`);
       return vertex.key.includes(field) ? [] : [field];
     };
-    const files = await readKindAssertions(tx, 'vertex', fileRole.kind, fieldsOf(fileRole.kind, pathField), { contract });
-    const repositories = await readKindAssertions(tx, 'vertex', repositoryRole.kind, fieldsOf(repositoryRole.kind, nameField), { contract });
-    const links = await readKindAssertions(tx, 'edge', parent.kind, [], { contract });
+    const files = await readKindAssertions(tx, 'vertex', fileRole.kind, fieldsOf(fileRole.kind, pathField), { contract, currentValues: true });
+    const repositories = await readKindAssertions(tx, 'vertex', repositoryRole.kind, fieldsOf(repositoryRole.kind, nameField), { contract, currentValues: true });
+    const links = await readKindAssertions(tx, 'edge', parent.kind, [], { contract, currentValues: true });
     const linksByFile = new Map<number, import('./records.js').AssertionRecord[]>();
     for (const edge of links) {
       const fileId = parent.direction === 'from' ? edge.from : edge.to;
@@ -167,7 +167,7 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
   return await withSpan('graph.producerEntities', {}, async () => await owner.transaction('snapshot', async tx => {
     const hasMerges = (await tx.query<{ present: boolean }>(`SELECT ${vertexKindPresentSql('system.merge')} AS present`)).rows[0]!.present;
     // Restrict identities, not the final read's opinions or dispute selection.
-    const existence = await loadAssertions(tx, 'vertex', kind, ['$exists'], undefined, { sourceUids: [sourceUid], projectMergedSubjects: hasMerges });
+    const existence = await loadAssertions(tx, 'vertex', kind, ['$exists'], undefined, { sourceUids: [sourceUid], projectMergedSubjects: hasMerges, currentValues: true });
     const subjectIds = [...new Set(existence.filter(assertion => assertion.active && assertion.value === true).map(assertion => assertion.subjectId))];
     const rows = await readKindAssertions(tx, 'vertex', kind, [], { contract, subjectIds });
     const refs = await referencesOf(tx, contract, kind, rows.map(row => row.id));
@@ -201,7 +201,7 @@ async function completedSnapshot(tx: SqlExecutor, runId: string, unitId: string,
   const relations = await edgeRowsIn(tx, 'system.unit-run', 'to', [run.id]);
   const inherited = await edgeRowsIn(tx, 'system.run-inherited-unit', 'from', [run.id]);
   const ids = new Set([...relations.map(edge => edge.from), ...inherited.map(edge => edge.to)]);
-  const members = await readKindAssertions(tx, 'vertex', 'system.unit', ['unit_name', 'state', 'scope', 'generation'], { subjectIds: [...ids] });
+  const members = await readKindAssertions(tx, 'vertex', 'system.unit', ['unit_name', 'state', 'scope', 'generation'], { subjectIds: [...ids], currentValues: true });
   const matches = members.filter(unit =>
     (stageScope === undefined ? unit.values['unit_name'] === unitId : unit.values['scope'] === stageScope)
     && (generation === undefined || unit.values['generation'] === generation)
@@ -239,7 +239,7 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
         JOIN entity ck ON ck.id=child.entity_id AND ck.name='system.unit'
       WHERE ${standing}
     ) SELECT n.uid::text AS uid FROM tree JOIN node n ON n.id=tree.id`, [root.id])).rows.map(row => row.uid));
-    const assertions = await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)], undefined, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1], unitUids: [...units] });
+    const assertions = await loadAssertions(tx, 'vertex', kind, ['$exists', ...declaration.fields.filter(field => !declaration.key.includes(field.name)).map(field => field.name)], undefined, { validAt: snapshot.validAt, recordedAt: snapshot.recordedAt, contexts: [1], unitUids: [...units], currentValues: true });
     const selected = assertions.filter(assertion => assertion.selected === true);
     const ids = [...new Set(selected.filter(assertion => assertion.property === '$exists' && assertion.value === true).map(assertion => assertion.subject.type === 'vertex' ? assertion.subject.uid : ''))];
     const nodes = await tx.query<{ id: number; uid: string; key: import('../plugin/protocol.js').PluginKeyValues }>('SELECT id,uid::text,key FROM node WHERE uid=ANY($1::uuid[]) ORDER BY uid', [ids]);
@@ -270,10 +270,15 @@ export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphCont
   const roles = (vertex.keyEdges ?? []).map(role => role.role);
   if (Object.keys(keyEdges).length !== roles.length || Object.keys(keyEdges).some(role => !roles.includes(role))) throw new Error(`${import.meta.path}:309: lookup of ${kind} requires every declared key edge`);
   return await withSpan('graph.pluginValue', {}, async () => await owner.transaction('snapshot', async tx => {
+    const held = await readKindAssertions(tx, 'vertex', kind, vertex.key.includes(field) ? [] : [field], { contract, currentValues: true });
+    // One batched reference read for the candidates, never one per row.
+    const matching = held.filter(row => Object.keys(key).every(k => row.key[k] === key[k]));
+    // A miss reads no key edge: the reference batch is only worth its statement when a candidate is left.
+    if (matching.length === 0) return null;
+    const refs = await referencesOf(tx, contract, kind, matching.map(row => row.id));
     const matches: import('./records.js').AssertionRecord[] = [];
-    for (const row of await readKindAssertions(tx, 'vertex', kind, vertex.key.includes(field) ? [] : [field], { contract })) {
-      if (!Object.keys(key).every(k => row.key[k] === key[k])) continue;
-      const ref = await referenceOf(tx, contract, kind, row.id);
+    for (const row of matching) {
+      const ref = refs.get(row.id)!;
       const same = (actual: import('./contract.js').EntityRefDraft, wanted: import('./contract.js').EntityRefDraft): boolean => actual.kind === wanted.kind && (wanted.uid === undefined || actual.uid === wanted.uid) && Object.keys(wanted.key).every(k => wanted.key[k] === actual.key[k]) && Object.entries(wanted.keyEdges ?? {}).every(([role, parent]) => actual.keyEdges?.[role] !== undefined && same(actual.keyEdges[role]!, parent));
       if (Object.entries(keyEdges).every(([role, parent]) => ref.keyEdges?.[role] !== undefined && same(ref.keyEdges[role]!, parent))) matches.push(row);
     }

@@ -47,6 +47,8 @@ test('assertion property batch preserves native typed values and subject filteri
    // A header belongs to one property: other typed tables must not be probed for it.
    expect(typedProbes(plan[0]!.Plan)).toBe(rows.length);
    const lineageProbes=(node:PlanNode):number=>(node['Relation Name']==='edge'&&('Alias' in node)&&String(node.Alias).startsWith('lineage')?node['Actual Loops']:0)+(node.Plans??[]).reduce((sum,child)=>sum+lineageProbes(child),0);
+   // A returned row reads its lineage once, never once per property: the narrowed row's own source lookup is a
+   // separate indexed read of the `source_edge` alias and is not counted here (madarch-64o5.176).
    expect(lineageProbes(plan[0]!.Plan)).toBe(rows.length);
    expect(await loadAssertions(executor,'vertex','typed',['amount'],[])).toEqual([]);expect(reads).toBe(1);
    const all=await loadAssertions(executor,'vertex','typed',['amount']);

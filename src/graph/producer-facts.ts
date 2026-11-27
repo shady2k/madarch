@@ -5,7 +5,7 @@ import type { GraphContract, EntityRefDraft } from './contract.js';
 import type { PluginVertexResult, PluginEdgeResult, PluginEvidence, PluginKeyValues } from '../plugin/protocol.js';
 import { canonicalKey } from '../plugin/results.js';
 import { withSpan } from '../obs/trace.js';
-import { loadAssertions, type StoredAssertion } from './assertion-read.js';
+import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { referencesOf, sdkReference } from './plugin-turns.js';
 
 type Identity = { id: number; key?: PluginKeyValues; from_node?: number; to_node?: number; discriminator?: string };
@@ -47,9 +47,13 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
       const group = identitiesByKind.get(key);
       if (group === undefined) identitiesByKind.set(key, [row]); else group.push(row);
     }
-    for (const { sort, name, fields } of requested) {
+    // One statement for every requested kind, not one read per kind.
+    const batches = requested.length === 0 ? [] : await loadAssertionsBatch(tx, requested.map(({ sort, name, fields }) => ({
+      sort, kind: name, properties: ['$exists', ...fields], subjectIds: (identitiesByKind.get(`${sort}:${name}`) ?? []).map(row => Number(row.id)),
+    })), { ...selector, sourceUids: [sourceUid], currentValues: true });
+    for (const [requestIndex, { sort, name }] of requested.entries()) {
       const rows = identitiesByKind.get(`${sort}:${name}`) ?? [];
-      const assertions = await loadAssertions(tx, sort, name, ['$exists', ...fields], rows.map(row => Number(row.id)), { ...selector, sourceUids: [sourceUid] });
+      const assertions = batches[requestIndex]!;
       const bySubject = new Map<number, StoredAssertion[]>();
       for (const assertion of assertions) if (assertion.source === sourceUid && assertion.language === null && assertion.selected) {
         const group = bySubject.get(assertion.subjectId);

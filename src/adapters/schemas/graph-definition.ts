@@ -131,6 +131,8 @@ interface ContractTrigger {
   readonly fn: string;
   readonly type: number;
   readonly deferred: boolean;
+  /** The trigger runs once per statement and reads the rows it inserted from a transition table. */
+  readonly transition: boolean;
   readonly statement: string;
 }
 
@@ -142,8 +144,8 @@ export function generateContractStatements(declared: GraphContract) {
     const statements: string[] = [];
     const triggers: ContractTrigger[] = [];
     const entities: {name:string;sort:string;repeats:boolean;discriminator:string|null}[] = [];
-    const trigger = (table:string,name:string,fn:string,type:number,deferred:boolean,statement:string):void => {
-      triggers.push({table,name,fn,type,deferred,statement});
+    const trigger = (table:string,name:string,fn:string,type:number,deferred:boolean,statement:string,transition=false):void => {
+      triggers.push({table,name,fn,type,deferred,transition,statement});
     };
     statements.push(`DO $$ BEGIN
       IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='edge'::regclass AND conname='edge_check'
@@ -565,22 +567,38 @@ WITH cardinality_vertices AS MATERIALIZED (
       END LOOP;
       END IF;`);
     }
+    // One accounting step per statement, not per row: the same least id, the same value tables and the
+    // same revision count a row trigger would have left, read once from the rows the statement inserted.
+    // A statement's own rows are accounted after its row triggers fire, so a check that ran inside the
+    // statement (immediate constraints) saw the accounting without them: it is repeated here.
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
+      DECLARE inserted bigint;
       BEGIN
-        IF TG_TABLE_NAME IN ('node','edge','context') THEN
-          IF nullif(current_setting('madarch.graph_' || TG_TABLE_NAME || '_lower',true),'') IS NULL THEN
-            PERFORM set_config('madarch.graph_' || TG_TABLE_NAME || '_lower',NEW.id::text,true);
-          END IF;
+        IF TG_WHEN='BEFORE' THEN
+          PERFORM set_config('madarch.graph_check_pending','',true);
+          RETURN NULL;
         END IF;
-        IF TG_TABLE_NAME IN ('assertion','assertion_vertex_subject','assertion_edge_subject') OR TG_TABLE_NAME NOT IN ('node','edge','context') THEN
-          PERFORM set_config('madarch.graph_node_lower',least(NEW.assertion_id,
-            coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,NEW.assertion_id))::text,true);
+        SELECT count(*) INTO inserted FROM graph_new_rows;
+        IF inserted=0 THEN RETURN NULL; END IF;
+        IF TG_TABLE_NAME IN ('node','edge','context') THEN
+          PERFORM set_config('madarch.graph_' || TG_TABLE_NAME || '_lower',
+            least(coalesce(nullif(current_setting('madarch.graph_' || TG_TABLE_NAME || '_lower',true),'')::bigint,9223372036854775807),
+              (SELECT min(id) FROM graph_new_rows))::text,true);
+        END IF;
+        IF TG_TABLE_NAME NOT IN ('node','edge','context') THEN
+          PERFORM set_config('madarch.graph_node_lower',
+            least(coalesce(nullif(current_setting('madarch.graph_node_lower',true),'')::bigint,9223372036854775807),
+              (SELECT min(assertion_id) FROM graph_new_rows))::text,true);
         END IF;
         IF TG_TABLE_NAME NOT IN ('node','edge','context','assertion','assertion_vertex_subject','assertion_edge_subject') THEN
           PERFORM set_config('madarch.graph_value_tables',(coalesce(nullif(current_setting('madarch.graph_value_tables',true),''),'{}')::jsonb || jsonb_build_object(TG_TABLE_NAME,true))::text,true);
         END IF;
-        PERFORM set_config('madarch.graph_revision',(coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')::bigint+1)::text,true);
-        RETURN NEW;
+        PERFORM set_config('madarch.graph_revision',(coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')::bigint+inserted)::text,true);
+        IF nullif(current_setting('madarch.graph_check_pending',true),'') IS NOT NULL THEN
+          PERFORM set_config('madarch.graph_check_pending','',true);
+          PERFORM graph_checks_pass();
+        END IF;
+        RETURN NULL;
       END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_checks_pass() RETURNS void LANGUAGE plpgsql SET jit=off AS $$
       DECLARE vertex_value_tables jsonb := ${literal(JSON.stringify(valueTables('vertex')))}::jsonb;
@@ -681,13 +699,16 @@ IF violation=106 THEN RAISE EXCEPTION '${import.meta.path}:106: END_KIND_INVALID
       PERFORM set_config('madarch.graph_context_lower','',true);
       RETURN; END $$`);
     statements.push(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF nullif(current_setting('madarch.graph_check_pending',true),'') IS NULL THEN PERFORM set_config('madarch.graph_check_pending','1',true); END IF;
       IF current_setting('madarch.checked_graph_revision',true)=current_setting('madarch.graph_revision',true) THEN RETURN NULL; END IF;
       PERFORM graph_checks_pass();
       RETURN NULL;
     END $$`);
     for (const table of ['node','edge','assertion','context','assertion_vertex_subject','assertion_edge_subject',...names]) {
-      trigger(table, 'graph_relations_dirty', 'graph_relations_dirty', 7, false,
-        `CREATE TRIGGER graph_relations_dirty BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION graph_relations_dirty()`);
+      trigger(table, 'graph_relations_statement', 'graph_relations_dirty', 6, false,
+        `CREATE TRIGGER graph_relations_statement BEFORE INSERT ON "${table}" FOR EACH STATEMENT EXECUTE FUNCTION graph_relations_dirty()`);
+      trigger(table, 'graph_relations_dirty', 'graph_relations_dirty', 4, false,
+        `CREATE TRIGGER graph_relations_dirty AFTER INSERT ON "${table}" REFERENCING NEW TABLE AS graph_new_rows FOR EACH STATEMENT EXECUTE FUNCTION graph_relations_dirty()`, true);
       trigger(table, 'graph_relations', 'graph_relations_check', 5, true,
         `CREATE CONSTRAINT TRIGGER graph_relations AFTER INSERT ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION graph_relations_check()`);
     }

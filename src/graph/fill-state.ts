@@ -81,7 +81,7 @@ type Identity = { readonly id: number; readonly uid: string; readonly key: Reado
  * timestamp: the statement reads at its own start, after every statement before it, and asks for
  * no clock round-trip of its own (madarch-64o5.176).
  */
-const ownWrites: AssertionRecordSelector = { currentStatement: true };
+const ownWrites: AssertionRecordSelector = { currentStatement: true, currentValues: true };
 async function readGraphRecords(tx: SqlExecutor, sort: 'vertex' | 'edge', kind: string, fields: readonly string[], subjectUids?: readonly string[]): Promise<AssertionRecord[]> {
   return await withSpan('graph.fill.records', {}, async () => await readAssertions(tx,sort,kind,fields,{...ownWrites,...(subjectUids===undefined?{}:{subjectUids})}));
 }
@@ -140,8 +140,13 @@ export async function readUnitsIn(tx: SqlExecutor, ids?: readonly number[]): Pro
 export async function edgeRowsIn(tx: SqlExecutor, relation: string, end: 'from' | 'to', ids: readonly number[]): Promise<{ readonly id: number; readonly from: number; readonly to: number }[]> {
   if (ids.length === 0) return [];
   return await withSpan('graph.fill.edges', { 'graph.kind': relation }, async () => {
+    // Each id is followed through the end's own index, so the read costs what its ids cost and the planner cannot
+    // trade that for a walk whose price follows the store (madarch-64o5.176). A repeated id is one id, as it was
+    // for the `=ANY` this replaces.
     const held = await tx.query<{id:string;from_node:string;to_node:string}>(`SELECT e.id::text AS id,e.from_node::text AS from_node,e.to_node::text AS to_node
-      FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name=$1 AND e.${end === 'from' ? 'from_node' : 'to_node'}=ANY($2::bigint[]) ORDER BY e.id`, [relation, ids]);
+      FROM unnest(ARRAY(SELECT DISTINCT unnest($2::bigint[]))) held(id) CROSS JOIN LATERAL (SELECT e.id,e.from_node,e.to_node FROM edge e
+        WHERE e.${end === 'from' ? 'from_node' : 'to_node'}=held.id AND e.entity_id=(SELECT id FROM entity WHERE name=$1) OFFSET 0) e
+      ORDER BY e.id`, [relation, ids]);
     return held.rows.map(row => ({ id: Number(row.id), from: Number(row.from_node), to: Number(row.to_node) }));
   });
 }

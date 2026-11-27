@@ -33,7 +33,7 @@ async function executor(values: readonly { property: string; value: unknown; ope
       // Return only the assertions the load binds, so a wrong subject bound changes the result too.
       const bound = boundSubjectIds({ sql, ...(parameters === undefined ? {} : { parameters }) }) as readonly number[] | undefined;
       rows = values.filter(value => (parameters?.[1] as readonly string[]).includes(value.property)).map((value, index) => ({
-        request_index: 0, property_rank: (parameters?.[1] as readonly string[]).indexOf(value.property), id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
+        request_index: 0, property_rank: (parameters?.[1] as readonly string[]).indexOf(value.property), assertion_id: index + 1, unit_ok: true, id: `assertion-${value.property}-${index}`, subject_id: value.subjectId ?? 1, subject_uid: value.subjectId === 2 ? 'other' : 'subject', edge_from: 'from-uid', edge_to: 'to-uid',
         property: value.property, context_id: value.context ?? 1, language: null, source: value.source ?? 'source', author: 'author',
         unit: null, operation_uid: 'operation', evidence: [], value: value.value, operation: value.operation ?? 'assert',
         valid_from: value.validFrom ?? '2026-11-14T00:00:00.000Z', valid_to: null,
@@ -45,10 +45,16 @@ async function executor(values: readonly { property: string; value: unknown; ope
     else if (sql.includes('FROM edge n')) rows = [{ request_index: 0, id: 1, uid: 'subject', key: {}, from_node: 4, to_node: 5, discriminator: 'role', read_at: now }];
     else throw new Error(`Unexpected query: ${sql}`);
     if (sql.includes('WITH RECURSIVE context_path')) {
-      const raw = `SELECT * FROM jsonb_to_recordset($1::jsonb) AS fixture(request_index integer, property_rank integer, id text, subject_id bigint, original_subject_id bigint, subject_uid text, edge_from text, edge_to text, property text, context_id bigint, language text, source text, author text, unit text, operation_uid text, evidence jsonb, value jsonb, operation text, valid_from timestamptz, valid_to timestamptz, recorded_at timestamptz, recorded_sequence text)`;
+      // The load reads a row's header first and its typed value after selection, keyed by the row's assertion id, so
+      // the fixture states both: the headers the raw CTE yields and the value each of their ids carries.
+      const injected = `$${(parameters?.length ?? 0)+1}`;
+      const fixture = `jsonb_to_recordset(${injected}::jsonb)`;
+      const raw = `SELECT * FROM ${fixture} AS fixture(request_index integer, property_rank integer, assertion_id bigint, unit_ok boolean, id text, subject_id bigint, original_subject_id bigint, subject_uid text, edge_from text, edge_to text, property text, context_id bigint, language text, source text, author text, unit text, operation_uid text, evidence jsonb, value jsonb, operation text, valid_from timestamptz, valid_to timestamptz, recorded_at timestamptz, recorded_sequence text)`;
       const start = sql.indexOf('raw AS MATERIALIZED (') + 'raw AS MATERIALIZED ('.length;
       const end = sql.indexOf('), eligible AS (', start);
-      const selectedSql = sql.slice(0, start) + raw.replace('$1::jsonb', `$${(parameters?.length ?? 0)+1}::jsonb`) + sql.slice(end);
+      const selectedSql = (sql.slice(0, start) + raw + sql.slice(end)).replace(
+        /FROM "[^"]+"( WHERE assertion_id=batches\.assertion_id AND batches\.property='[^']*' AND batches\.request_index=\d+)/g,
+        (_match, where: string) => `FROM ${fixture} AS fixture_value(assertion_id bigint,property text,request_index integer,value jsonb)${where}`);
       const values: unknown[] = [];
       const positions = new Map<string, string>();
       const boundSql = selectedSql.replace(/\$(\d+)/g, (_match, index: string) => {
