@@ -223,13 +223,16 @@ jobs:
             exit 1
           fi
 
-  # The ten files test/slow-files.json records for the speed-up stream as
+  # The nine files test/slow-files.json records for the speed-up stream as
   # green-slow, each measured over 30 seconds alone on a runner in three samples
   # of the F4 tree (runs 46044618928, 46045922097 and 46046625374; every entry
-  # also names its earlier run), run here one
-  # job each. The shards leave out every file the list names (the shard step here
+  # also names its earlier run), run here one job each. Eight of the nine were
+  # above the bound in all three samples; the median of agent-fill-e2e was above
+  # it while one of its samples was inside, so it needs a fresh confirmation
+  # before it can return to the shards (it was green alone in run 46063935769, at
+  # 27.30 s). The shards leave out every file the list names (the shard step here
   # and scripts/run-tests.ts), so this required matrix is the blocking coverage of
-  # these ten. Four fixtures of the list run in partition-bootstrap, not in
+  # these nine. Four fixtures of the list run in partition-bootstrap, not in
   # `checks`: git-partition-bootstrap, h3-real-reconciliation,
   # disk-support-ownership and agent-fill-graph-mcp. Every other green-slow entry
   # runs only in the nightly slow-tests.yml, as do main's own entries in the list.
@@ -246,7 +249,6 @@ jobs:
         include:
           - { file: test/agent-fill-e2e.test.ts, cases: 2 }
           - { file: test/db-schema-path.test.ts, cases: 5 }
-          - { file: test/api-role-first-page.test.ts, cases: 1 }
           - { file: test/owner-fill-path.test.ts, cases: 1 }
           - { file: test/ordinary-plugin-partition.test.ts, cases: 16 }
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }

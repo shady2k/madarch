@@ -19,14 +19,17 @@ never reads.
 - A reduction of any fixture whose volume is the case's own subject.
 
 ## Rationale
-Three independent runner samples of the F4 tree measure all twelve files of the study — the ten
-listed here, `test/catalogue-kind-relations.test.ts` and `test/plugin-fill-scenarios.test.ts`, which
-is already a shard file. One of them, `test/catalogue-kind-relations.test.ts`, is at or below the
+Three independent runner samples of the F4 tree measure all twelve files of the study — the ten files
+the slow list carried then, `test/catalogue-kind-relations.test.ts` and
+`test/plugin-fill-scenarios.test.ts`, which was already a shard file. One of them,
+`test/catalogue-kind-relations.test.ts`, is at or below the
 bound in all three, so the slow list cannot keep it: a listed entry must carry more than 30 s, and
-the shard suite is where a file that fits belongs. Ten stay listed, each with one named required
+the shard suite is where a file that fits belongs. Nine stay listed, each with one named required
 job: eight are above the bound in every sample (31.62–108.39 s), and `test/agent-fill-e2e.test.ts`
-(median 35.76 s) and `test/api-role-first-page.test.ts` (median 38.09 s) are above it at the median
-but not in every sample, so neither returns yet. The reason is not a fixture that could be smaller:
+(median 35.76 s) is above it at the median but not in every sample, so it does not return yet. The
+first runner run then returned `test/api-role-first-page.test.ts` as well, on three alone samples of
+one run (9.32 s, 6.877 s and 6.900 s). The reason the rest stay is not a fixture that could be
+smaller:
 one fill pass of an already trimmed fixture costs 18.6–19.5 s on a runner, so a file that
 needs two or three passes cannot reach the bound whatever its data. Their entries therefore stop
 explaining themselves with the pre-stream box trace and record the three-sample median instead, in
@@ -57,11 +60,13 @@ Kind: internal
 Place: `test/slow-files.json`, `.github/workflows/single-file-timings.json`, `.github/workflows/ci.yml`, `test/api-role-first-page.test.ts`
 Reason: the project's slow-test inventory and one test's setup, with no visible product behavior.
 
-1. Read `test/slow-files.json`: ten entries of the stream; `test/catalogue-kind-relations.test.ts`
-   is not among them, and each remaining entry records the median of its three runner samples.
-2. Read the `slow-files` matrix of `.github/workflows/ci.yml`: ten lines, nine `cases` values
-   unchanged and `source-follows-fill` raised from 2 to 3, and a comment naming the ten files and the
-   three sample runs their medians come from.
+1. Read `test/slow-files.json`: nine entries of the stream; `test/catalogue-kind-relations.test.ts`
+   and `test/api-role-first-page.test.ts` are not among them, and each remaining entry records the
+   median of its three runner samples.
+2. Read the `slow-files` matrix of `.github/workflows/ci.yml`: nine lines, eight `cases` values
+   unchanged and `source-follows-fill` raised from 2 to 3, a comment naming the nine files and the
+   three sample runs their medians come from, and the same comment saying that eight of the nine were
+   above the bound in every sample while `agent-fill-e2e` is above it at the median only.
 3. Run `bun run check:slow-tests`: no finding; every listed entry is over 30 s and agrees with its
    committed evidence within 100 ms.
 4. Run `bun run test --slow --only test/api-role-first-page.test.ts`: one case passes with both
@@ -80,18 +85,73 @@ None.
   `agent-fill-e2e` (24.18–36.96 s) each have one sample inside the bound and two outside, so neither
   returns from this change: the return needs a complete green runner measurement at or below 30 s,
   a fresh confirmation and verified required-shard coverage, and the follow-ups are written in
-  `measurement.md`.
+  `measurement.md`. The catalogue file's own shard measurement is a separate question from those
+  three standalone samples, and its first shard run measured 33 641 ms, so nothing here claims the
+  file meets the 30 s bound in a shard.
 - **The setup change is not a weakened assertion.** The case reads the status page, not a filled
   fact: the manifest is published by the same helper the product uses, and the finished run stands
   in the store exactly as a fill's own record does, so `filled` and `manifest: ok` still come from
   the store's record rather than from the fixture's opinion.
 
 ## Acceptance evidence
+
+### The pull request's first runner run
+
+The pull request's first required run ([46063935769](https://github.com/shady2k/madarch/actions/runs/46063935769),
+`ab0a24d2e`) measured the delivered tree on `ubuntu-24.04`: all five shard jobs and all ten
+slow-file jobs the matrix then carried passed, and the five shard artifacts hold 88 / 95 / 86 / 83 /
+96 files in shard order (448 files). The run's conclusion is nevertheless **red**: the aggregate
+`test` job
+([140726623318](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140726623318))
+failed on two findings of its growth gate, both below, and only the first of them belongs to this
+change. These measurements matter here.
+
+- **`test/catalogue-kind-relations.test.ts` ran in shard 1 at 33 641 ms**
+  (`test-files-1/shard-1.json`, job
+  [140724610884](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724610884)),
+  named exactly once across the five artifacts. That is above the 30 s bound the shard jobs are held
+  to, on a first sample, while its three standalone samples of the F4 tree were 27.81–29.18 s. So
+  this change records the weight as measured and does **not** claim the file meets the 30 s shard
+  bound: its placement is the next required run's to decide, as the follow-up in `measurement.md`
+  states, and the three standalone samples stay as historical evidence.
+- **`test/plugin-fill-scenarios.test.ts` measured 16 561 ms in shard 4** (`test-files-4/shard-4.json`):
+  still a shard file, and its `MISSING_ENDPOINT` flakiness stays a separate investigation.
+- **`test/source-follows-fill.test.ts` ran all three of its cases green in 62.73 s** (job
+  [140724610973](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724610973),
+  "Ran 3 tests across 1 file"), which is the complete-file confirmation of the `cases: 3` the matrix
+  now names for it.
+- **`test/api-role-first-page.test.ts` measured 9.32 s** in its own job (job
+  [140724610904](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724610904), 1
+  pass, 0 fail, both latency bounds active), and the run's own growth gate then measured the same
+  reduced file alone twice more, at **6.877 s and 6.900 s** (`--growth`, attempts 1 and 2 of job
+  [140726623318](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140726623318)). Three
+  green alone samples of one run, two of them at or below the 15 s `SLOW_EXIT_SECONDS` (6.877 s and
+  6.900 s against 15 000 ms), cannot stay behind a slow-list entry: the growth gate's own rule reads
+  a file that fast as "not slow" and refuses the entry. The entry, its matrix line and its named job
+  are gone in this follow-up, the file returns to the shards, and
+  `.github/workflows/single-file-timings.json` carries 9 320 ms.
+- **`test/agent-fill-e2e.test.ts` measured 27.30 s** (job
+  [140724610951](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724610951), 2
+  pass, 0 fail) besides the 26.759 s of the same growth gate, both inside the bound but above half of
+  it: its entry, its matrix line and its two agent fill scenarios stay until a fresh confirmation and
+  verified required-shard coverage arrive.
+- **Every other shard and slow-file job passed**, including `test/status-work.test.ts` at 95.10 s
+  with 3 pass (job
+  [140724611310](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140724611310)),
+  whose third case was 21.09 s. The growth gate's second finding is that same file alone: 2 pass,
+  1 fail, its third case reaching its own 60 s timeout (job
+  [140726623318](https://github.com/shady2k/madarch/actions/runs/46063935769/job/140726623318), case 3
+  60 000.17 ms, case 2 at 27.914 s). That timeout is a separate production question owned elsewhere,
+  is not part of this diff, and stays open; it is why this pull request cannot go green yet.
+
 - `bun run check` on a 4 vCPU / 8 GiB box on agent-linux-02, on the delivered tree, with
   `MADARCH_SKIP_PERF=1`: exit 0
   (`tsc --noEmit`, `check:architecture` 499/499, `check:ui` 0, `check:catalog`,
   `check:workflows` 4, `check:slow-tests` "64 listed, 503 measured files, no finding",
-  `check:quarantine`, `check:tests` 0 violations).
+  `check:quarantine`, `check:tests` 0 violations). The follow-up that returns the first page to the
+  shards runs the inventory checks again on its own tree: `check:slow-tests` "63 listed, 504 measured
+  files, no finding" and `check:workflows` 4 workflows, both exit 0, with `git diff --check` clean
+  and `test/workflows-check.test.ts` 4 pass, 0 fail.
 - `bun run test --slow --only test/api-role-first-page.test.ts` on the same box, twice, with
   `MADARCH_SKIP_PERF` unset: 1 pass, 0 fail, 9 `expect()` calls, 37.15 s and 36.26 s, the case
   3.00 s and 2.77 s.

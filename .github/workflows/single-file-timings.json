@@ -14,7 +14,7 @@
     "test/alx-1114-batching.test.ts": 5586,
     "test/alx-1114-owner-reconcile.test.ts": 3731,
     "test/alx-1114-ownfacts.test.ts": 4501,
-    "test/api-role-first-page.test.ts": 38090,
+    "test/api-role-first-page.test.ts": 9320,
     "test/app-rebuild.test.ts": 10400,
     "test/archify-sublabel.test.ts": 6300,
     "test/architecture-check.test.ts": 14000,

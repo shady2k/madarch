@@ -26,7 +26,7 @@
     "test/catalog-test-quarantine.test.ts": 9200,
     "test/catalog-work-common.test.ts": 7000,
     "test/catalogue-diagram.test.ts": 22900,
-    "test/catalogue-kind-relations.test.ts": 15000,
+    "test/catalogue-kind-relations.test.ts": 33641,
     "test/changed-pages.test.ts": 6400,
     "test/child-stop.test.ts": 7500,
     "test/chromium.test.ts": 6400,
