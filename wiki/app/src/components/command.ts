@@ -605,7 +605,6 @@ export function readFillPlan(base: string, selected: readonly string[], signal?:
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });
 }
 
-/** `GET /api/product`: the product's identity, read from its manifest alone. */
 /** The guarded authored command. Existing entities always carry the revision the reader opened. */
 export function writeAuthored(base: string, kind: string, action:
   | { readonly method: 'POST'; readonly values: Readonly<Record<string, unknown>> }
@@ -619,6 +618,7 @@ export function writeAuthored(base: string, kind: string, action:
   });
 }
 
+/** `GET /api/product`: the product's identity, read from its manifest alone. */
 export const readProduct = (base: string, signal?: AbortSignal): Promise<{ readonly id: string; readonly name: string; readonly folder?: string }> => command(base, '/api/product', signal === undefined ? {} : { signal });
 
 /** The agents the reader may pick, and the one the product saved. */

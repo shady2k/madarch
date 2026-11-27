@@ -46,16 +46,6 @@
       "exit": "Remove this entry only after a green complete-file runner measurement of test/api-role-first-page.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
     },
     {
-      "path": "test/authored-http.test.ts",
-      "seconds": 52.1,
-      "reason": "red-defect",
-      "result": "red",
-      "owner": "madarch-x9a7",
-      "defect": "The authored create/update/delete case expects error.field to name title, but invalid numeric title input returns SCHEMA_INVALID with path /values/title instead.",
-      "replacement": "Assert the structured SCHEMA_INVALID title-path refusal before exercising creation, conditional update, deletion and GraphQL reads with valid authored values.",
-      "exit": "Rewrite test/authored-http.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
-    },
-    {
       "path": "test/catalog-check.test.ts",
       "seconds": 41.4,
       "reason": "green-slow",

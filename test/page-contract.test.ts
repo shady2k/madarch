@@ -105,8 +105,8 @@ describe('the starter templates', () => {
       if (read.template !== undefined) templates.set(name, read.template);
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
-    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'dependencies', 'records', 'details', 'diagram', 'outgoing', 'backlinks']);
-    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'details', 'body', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'createAuthored', 'facts', 'dependencies', 'records', 'editAuthored', 'details', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'editAuthored', 'details', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 
   test('the home page composes against the real schema', () => {
