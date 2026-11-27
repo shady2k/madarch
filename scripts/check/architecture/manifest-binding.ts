@@ -5,8 +5,11 @@
  * publication of the product's declarations — free to state, retire and re-state what every other source fills from —
  * so the call stands in src/graph/manifest-publication.ts and nowhere else.
  *
- * The rule is about names: a producer named by a string literal is what the parse says, and a producer carried in a
- * variable is not a name this check can read; the module that would hide it there is the reader's to refuse.
+ * The rule is about names: a producer named by a string literal — `'manifest'` or a template with no substitution — is
+ * what the parse says, and a producer carried in a variable is not a name this check can read; the module that would
+ * hide it there is the reader's to refuse. A module that brings the binding in under another name calls it by that
+ * name, so the imports are read as well: `import { startupBinding as bind }` makes `bind(tx, {}, 'manifest')` the
+ * publication's call.
  */
 import { moduleNamesOf } from './imports.js';
 import { moduleSet, type ModuleSet } from './sources.js';
@@ -26,9 +29,16 @@ export function manifestBindingViolations(root: string, modules: ModuleSet = mod
   const violations: ArchitectureViolation[] = [];
   for (const file of modules.modules) {
     if (file === MANIFEST_BINDING_MODULE) continue;
-    for (const call of moduleNamesOf(root, file).calls) {
-      if (!(BINDING_NAMES as readonly string[]).includes(call.name) || !call.literals.includes(MANIFEST_PRODUCER)) continue;
-      violations.push({ rule: 'one-manifest-binding', file, line: call.line, symbol: call.name });
+    const names = moduleNamesOf(root, file);
+    // The names this module calls the binding by: the imported name, and every local alias the statement binds it to.
+    const local = new Map<string, string>();
+    for (const statement of names.imports) for (const binding of statement.bindings) {
+      if ((BINDING_NAMES as readonly string[]).includes(binding.imported)) local.set(binding.local, binding.imported);
+    }
+    for (const call of names.calls) {
+      const symbol = local.get(call.name) ?? ((BINDING_NAMES as readonly string[]).includes(call.name) ? call.name : undefined);
+      if (symbol === undefined || !call.literals.includes(MANIFEST_PRODUCER)) continue;
+      violations.push({ rule: 'one-manifest-binding', file, line: call.line, symbol });
     }
   }
   return orderedViolations(violations);

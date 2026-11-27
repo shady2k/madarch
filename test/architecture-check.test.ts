@@ -667,6 +667,50 @@ describe('the architecture check', () => {
     expect(architectureCheckPasses(removed)).toBe(true);
   });
 
+  test('an aliased manifest binding named by a template literal fails, and the publication\'s own call passes', async () => {
+    const root = fixtureProject();
+    await acceptWhatIsFound(root, ['one-manifest-binding']);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+
+    // The publication's own call, with the producer written as a template that substitutes nothing.
+    const publication = [
+      '/** The one module that states the catalogue\'s declarations. */',
+      'export function bindStartupWriter(tx: unknown, contract: unknown, producer: string): unknown {',
+      '  return [tx, contract, producer];',
+      '}',
+      '',
+      'export function publish(tx: unknown): unknown {',
+      '  return bindStartupWriter(tx, {}, `manifest`);',
+      '}',
+    ];
+    writeModule(root, 'src/graph/manifest-publication.ts', publication);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+
+    // An alias the module imported the binding under is the same call, whether or not the producer is a plain literal.
+    const plant = [
+      '/**',
+      ' * A second publication, planted by the test: it binds the manifest producer under another local name, and writes',
+      ' * the name as a template that substitutes nothing.',
+      ' */',
+      "import { startupBinding as bind } from './graph/manifest-publication.js';",
+      '',
+      'export const second = (tx: unknown) => bind(tx, {}, `manifest`);',
+    ];
+    writeModule(root, 'src/aliased-publication.ts', plant);
+
+    const planted = await architectureCheck({ root, rules: ['one-manifest-binding'] });
+    expect(planted.comparison.unlisted).toEqual([
+      { rule: 'one-manifest-binding', file: 'src/aliased-publication.ts', line: lineOf(plant, 'bind(tx'), symbol: 'startupBinding' },
+    ]);
+    const problems = architectureProblemLines(planted);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toContain(`${join(root, 'src', 'aliased-publication.ts')}:${lineOf(plant, 'bind(tx')}: one-manifest-binding:`);
+    expect(problems[0]).toContain("takes the manifest publication's binding (startupBinding)");
+
+    rmSync(join(root, 'src', 'aliased-publication.ts'));
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['one-manifest-binding'] }))).toEqual([]);
+  });
+
   test('an import of a retired surface fails, and passes when the importer is removed', async () => {
     const root = fixtureProject();
     const view = FIXTURE['src/writer/view.ts']!;

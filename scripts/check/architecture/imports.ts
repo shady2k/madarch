@@ -134,9 +134,10 @@ function moduleNamesOfSource(source: string, file: string, path: string): Module
   for (const dynamic of moduleLoadsOf(module)) {
     statements.push({ specifier: dynamic.specifier, line: lineAt(bytes, dynamic.start), names: [], bindings: dynamic.bindings, reExport: false, typeOnly: false, wholeModule: true });
   }
-  const literalCalls = literalCallsOf(module).map((call) => ({ value: call.value, line: lineAt(bytes, call.start) }));
-  const calls = namedCallsOf(module).map((call) => ({ name: call.name, line: lineAt(bytes, call.start), literals: call.literals }));
-  return { imports: statements, literalCalls, calls };
+  const calls = callsOf(module);
+  const literalCalls = literalCallsOf(calls, bytes);
+  const namedCalls = namedCallsOf(calls, bytes);
+  return { imports: statements, literalCalls, calls: namedCalls };
 }
 
 /** The 1-based line a byte offset falls on: one more than the newlines before it. */
@@ -222,49 +223,32 @@ function moduleLoadsOf(node: unknown): DynamicImport[] {
   return found;
 }
 
-/** One call whose first argument is a string literal. */
-interface LiteralArgument {
-  readonly value: string;
+/** One call in a module's body, as a rule about its name or about the string literals among its arguments reads it. */
+interface CallSyntax {
+  /** The callee's name: the identifier it is called by, or the property a member call names; null when it is computed. */
+  readonly name: string | null;
+  /** The byte offset the call starts at. */
   readonly start: number;
+  /** The first argument's value, when that argument is a string literal or a template with no substitution. */
+  readonly firstArgument: string | null;
+  /** Every string literal written among the arguments, in the order they are written. */
+  readonly literals: readonly string[];
 }
 
 /**
- * Every call in a module whose first argument is a string literal, wherever it stands:
- * `load('src/extract/driver/index.ts')` names that module as plainly as `import()` does,
- * and the parse is the only reader of it. A computed argument is not a name this check
- * can read, and is left to the reader.
+ * The string a literal expression writes: `'x'`, or a template with no substitution (`` `x` ``). A computed string is
+ * not a name this check can read, and is left to the reader.
  */
-function literalCallsOf(node: unknown): LiteralArgument[] {
-  const found: LiteralArgument[] = [];
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item);
-      return;
-    }
-    if (value === null || typeof value !== 'object') return;
-    const held = value as Record<string, unknown>;
-    if (held['type'] === 'CallExpression') {
-      const first = Array.isArray(held['arguments']) ? (held['arguments'][0] as Record<string, unknown> | undefined) : undefined;
-      const expression = first?.['expression'] as Record<string, unknown> | undefined;
-      const span = held['span'] as { start: number } | undefined;
-      if (expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' && span !== undefined) {
-        found.push({ value: expression['value'], start: span.start });
-      }
-    }
-    for (const [key, entry] of Object.entries(held)) {
-      if (key === 'span' || key === 'ctxt') continue;
-      walk(entry);
-    }
-  };
-  walk(node);
-  return found;
-}
-
-/** One call to a named function, with the string literals its arguments carry. */
-interface NamedCallSyntax {
-  readonly name: string;
-  readonly start: number;
-  readonly literals: readonly string[];
+function stringOf(expression: Record<string, unknown> | undefined): string | null {
+  if (expression === undefined) return null;
+  if (expression['type'] === 'StringLiteral' && typeof expression['value'] === 'string') return expression['value'];
+  if (expression['type'] === 'TemplateLiteral') {
+    const expressions = expression['expressions'] as unknown[] | undefined;
+    const quasis = expression['quasis'] as { readonly cooked?: string | null; readonly raw?: string }[] | undefined;
+    const cooked = quasis?.[0]?.cooked ?? quasis?.[0]?.raw;
+    if (expressions?.length === 0 && typeof cooked === 'string') return cooked;
+  }
+  return null;
 }
 
 /** The name a call expression is made by: an identifier, or the property of a member call whose name is written. */
@@ -277,12 +261,12 @@ function calleeNameOf(callee: Record<string, unknown> | undefined): string | nul
 }
 
 /**
- * Every call a module makes by name whose arguments carry a string literal, wherever it stands: a rule about a
- * function's arguments (`startupBinding(tx, contract, 'manifest')`) reads them from the parse, and a name built at
- * run time is not a name this check can read and is left to the reader.
+ * Every call in a module's body, wherever it stands, read in one walk of its tree: a rule that reads a call's name
+ * (`startupBinding(tx, contract, 'manifest')`) and one that reads a module named by a literal
+ * (`load('src/extract/driver/index.ts')`) ask the same parse, and neither reads the tree again.
  */
-function namedCallsOf(node: unknown): NamedCallSyntax[] {
-  const found: NamedCallSyntax[] = [];
+function callsOf(node: unknown): CallSyntax[] {
+  const found: CallSyntax[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
       for (const item of value) walk(item);
@@ -291,14 +275,15 @@ function namedCallsOf(node: unknown): NamedCallSyntax[] {
     if (value === null || typeof value !== 'object') return;
     const held = value as Record<string, unknown>;
     if (held['type'] === 'CallExpression') {
-      const name = calleeNameOf(held['callee'] as Record<string, unknown> | undefined);
       const span = held['span'] as { start: number } | undefined;
       const args = Array.isArray(held['arguments']) ? (held['arguments'] as Record<string, unknown>[]) : [];
-      const literals = args.flatMap((argument) => {
-        const expression = argument['expression'] as Record<string, unknown> | undefined;
-        return expression?.['type'] === 'StringLiteral' && typeof expression['value'] === 'string' ? [expression['value']] : [];
-      });
-      if (name !== null && span !== undefined && literals.length > 0) found.push({ name, start: span.start, literals });
+      if (span !== undefined) {
+        const values = args.map((argument) => stringOf(argument['expression'] as Record<string, unknown> | undefined));
+        found.push({
+          name: calleeNameOf(held['callee'] as Record<string, unknown> | undefined), start: span.start,
+          firstArgument: values[0] ?? null, literals: values.flatMap((value) => value === null ? [] : [value]),
+        });
+      }
     }
     for (const [key, entry] of Object.entries(held)) {
       if (key === 'span' || key === 'ctxt') continue;
@@ -307,4 +292,22 @@ function namedCallsOf(node: unknown): NamedCallSyntax[] {
   };
   walk(node);
   return found;
+}
+
+/**
+ * Every call whose first argument is a string literal, whatever the call is called — a local `load(path)`
+ * helper that imports what the path names is as much a way of naming a module as `import()` is, and the
+ * literal is what the parse says, never a pattern read from the text.
+ */
+function literalCallsOf(calls: readonly CallSyntax[], bytes: Uint8Array): LiteralCall[] {
+  return calls.flatMap((call) => call.firstArgument === null ? [] : [{ value: call.firstArgument, line: lineAt(bytes, call.start) }]);
+}
+
+/**
+ * Every call a module makes by name whose arguments carry a string literal, wherever it stands: a rule about a
+ * function's arguments reads them from the parse, and a name built at run time is not a name this check can read
+ * and is left to the reader.
+ */
+function namedCallsOf(calls: readonly CallSyntax[], bytes: Uint8Array): NamedCall[] {
+  return calls.flatMap((call) => call.name === null || call.literals.length === 0 ? [] : [{ name: call.name, line: lineAt(bytes, call.start), literals: call.literals }]);
 }

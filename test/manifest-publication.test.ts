@@ -250,7 +250,7 @@ test('ALX-132 reset republishes the catalogue and marks the new graph', async ()
   } finally { await owner.close(); }
 }, 60_000);
 
-test('ALX-132 a source that is not the manifest publication states no fingerprint, and the fast path reads the installation', async () => {
+test('a source that is not the manifest publication states no fingerprint, and the fast path reads the installation', async () => {
   const validated = publicationFixture();
   const contract = withManifestContract(EMPTY_CONTRACT);
   const owner = await createTestDatabaseOwner({ graphContract: contract });
