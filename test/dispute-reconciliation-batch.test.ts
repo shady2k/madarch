@@ -123,12 +123,14 @@ async function measure(count:number,reconcile:Reconcile,changing=false,catalog=c
  try{return await f.owner.transaction('write',async tx=>{
   f.bind(tx,f.a);
   await startupBinding(tx,contract,'system.disputes');
-  const counts={total:0,rows:0,clocks:0};
+  const counts={total:0,rows:0,independentClockReads:0,endpointChecks:0};
   const statements:string[]=[];
   const query=tx.query.bind(tx);
   tx.query=async<Row extends object=Record<string,unknown>>(sql:string,values?:readonly unknown[]):Promise<{rows:Row[]}>=>{
    counts.total++;statements.push(sql);
-   if(sql.includes('clock_timestamp()'))counts.clocks++;
+   // Endpoint checks choose a cutoff within their existing SQL statement.
+   if(/\bgraph_vertex_active_ids_batch\s*\(/i.test(sql))counts.endpointChecks++;
+   else if(/\bclock_timestamp\s*\(/i.test(sql))counts.independentClockReads++;
    const result=await query(sql,values);counts.rows+=result.rows.length;
    return result as {rows:Row[]};
   };
@@ -139,10 +141,11 @@ async function measure(count:number,reconcile:Reconcile,changing=false,catalog=c
 test('stable affected slots bound every SQL statement by writes',async()=>{
  const small=await measure(10,reconcileDisputes);
  console.log('stable small',JSON.stringify({...small,statements:undefined}));
- // Before the fix each slot has two instants: 10 -> 200 adds 380 clocks.
- expect(small.clocks).toBe(3);
+ // Reading the clock for each slot's two instants would add 380 queries.
+ expect(small.independentClockReads).toBe(3);
  const large=await measure(200,reconcileDisputes);
  console.log('stable large',JSON.stringify({...large,statements:undefined}));
+ expect(large.endpointChecks).toBe(small.endpointChecks);
  expect(large.statements.map(sql=>sql.replace(/source.to_node=\d+::bigint/g,'source.to_node=<identity>::bigint'))).toEqual(small.statements.map(sql=>sql.replace(/source.to_node=\d+::bigint/g,'source.to_node=<identity>::bigint')));
  expect(large.rows-small.rows).toBe(190*13);
 },60000);
@@ -154,16 +157,20 @@ test('unrelated question catalog does not enlarge the reconciliation snapshot',a
  expect(large.rows).toBe(small.rows);
 },60000);
 test('opening questions reads the same statements and rows per change',async()=>{
- const small=await measure(10,reconcileDisputes,true);
+ const smallSlots=10,largeSlots=200;
+ const small=await measure(smallSlots,reconcileDisputes,true);
  console.log('changing small',JSON.stringify({...small,statements:undefined}));
- expect(small.clocks).toBe(13);
- const large=await measure(200,reconcileDisputes,true);
+ expect(small.independentClockReads).toBe(13);
+ const large=await measure(largeSlots,reconcileDisputes,true);
  console.log('changing large',JSON.stringify({...large,statements:undefined}));
+ // Each new question validates its endpoints and refreshes the reconciliation snapshot.
+ expect(large.endpointChecks-small.endpointChecks).toBe(largeSlots-smallSlots);
+ expect(large.independentClockReads-small.independentClockReads).toBe(largeSlots-smallSlots);
  // The fixed part of the transaction is the reconciliation snapshot and the write rights: 21 statements and
  // 26 rows, which a started installation answers from what it installed rather than reading again per
  // transaction (madarch-64o5.176). Everything else is per slot.
- expect((large.total-21)/200).toBe((small.total-21)/10);
- expect((large.rows-small.rows)/190).toBe((small.rows-26)/10);
+ expect((large.total-21)/largeSlots).toBe((small.total-21)/smallSlots);
+ expect((large.rows-small.rows)/(largeSlots-smallSlots)).toBe((small.rows-26)/smallSlots);
 },60000);
 
 // Exercise the production default through the fenced host, not an explicit slot list.
