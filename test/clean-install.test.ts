@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { fillPlanView } from '../src/knowledge/fill-plan.js';
+import { fillTargets } from '../src/knowledge/fill-targets.js';
 import { checkProductTemplates } from '../src/graph/template-check.js';
 import { readFolderTemplates } from './page-templates-fixture.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -19,6 +21,34 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
+  test('the everything starter can plan all kinds and individual plugin fills', () => {
+    const product = join(scratch, 'starter-plan');
+    mkdirSync(product);
+    seedStarterSet(product, 'everything');
+    const read = readKinds(product);
+    if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: no starter manifest`);
+    const { manifest } = read;
+    const allKinds = [...manifest.kinds.keys()];
+    const planFor = (requested: readonly string[], pluginsOnly: boolean) => {
+      const targets = fillTargets(manifest, requested, pluginsOnly);
+      if (!targets.ok) throw new Error(targets.message);
+      return fillPlanView(manifest, product, targets.targets.order, requested, targets.targets.entries, pluginsOnly);
+    };
+    const full = planFor(allKinds, false);
+    expect(full.errors).toEqual([]);
+    expect(full.needsAgent.some((need) => need.kind === 'idea')).toBe(true);
+
+    const plugins = planFor(allKinds, true);
+    expect(plugins.errors).toEqual([]);
+    expect(plugins.units.length).toBeGreaterThan(0);
+    expect(plugins.units.filter((unit) => manifest.plugins?.get(unit.plugin)?.declaration?.agent !== undefined)).toEqual([]);
+    expect(plugins.needsAgent.some((need) => need.kind === 'idea')).toBe(true);
+    for (const kind of allKinds) {
+      // Planning a lone blob also needs its source kind (madarch-64o5.184).
+      if (kind !== 'code.blob') expect(planFor([kind], true).errors).toEqual([]);
+    }
+  });
+
   test('the plugin-free store fixture keeps the kinds and bindings a fill reads, and no plugin', async () => {
     const product = join(scratch, 'store-fixture');
     mkdirSync(product);
