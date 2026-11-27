@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { startupBinding } from '../src/graph/manifest-publication.js';
 import { readKindAssertions } from '../src/graph/records.js';
+import { newUid } from '../src/graph/uid.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const producer = 'agent-fill';
@@ -34,6 +36,47 @@ test('overlapping agent-fill startups in one transaction reuse its installation'
     expect(second.binding.sourceUid).toBe(first.binding.sourceUid);
     expect(second.binding.operationUid).not.toBe(first.binding.operationUid);
     expect(recovered.sourceUid).toBe(first.binding.sourceUid);
+  } finally { await owner.close(); }
+});
+
+test.each(['plugin', 'system.unit'] as const)('a new %s remains active for operation publication if the database clock moves back', async endpoint => {
+  const owner = await createTestDatabaseOwner({ authenticated: false });
+  try {
+    const unitUid = newUid();
+    const { binding } = await owner.transaction('write', async tx => {
+      // Simulate a clock correction after BEGIN without moving the shared server clock.
+      await tx.query('CREATE SCHEMA test_clock');
+      await tx.query(`CREATE FUNCTION test_clock.clock_timestamp() RETURNS timestamptz LANGUAGE sql
+        AS $$ SELECT pg_catalog.transaction_timestamp() - interval '1 minute' $$`);
+      const moveClockBack = async () => await tx.query('SET LOCAL search_path TO test_clock, pg_catalog, public');
+      if (endpoint === 'plugin') await moveClockBack();
+      const installed = await startupBinding(tx, EMPTY_CONTRACT, producer);
+      const { operationUid, sourceUid, contractVersion } = installed.binding;
+      const writer = { producer: sourceUid, producerVersion: contractVersion };
+      await publishGraphDrafts(tx, installed.contract, {
+        vertices: [{ kind: 'system.unit', uid: unitUid, key: {}, ...writer }], removals: [],
+      });
+      if (endpoint === 'system.unit') await moveClockBack();
+      await publishGraphDrafts(tx, installed.contract, {
+        vertices: [{ kind: 'system.operation', uid: operationUid, key: {}, ...writer }], removals: [], edges: [{
+          kind: 'system.operation-unit', from: { kind: 'system.operation', uid: operationUid, key: {} },
+          to: { kind: 'system.unit', uid: unitUid, key: {} }, ...writer,
+        }],
+      });
+      return installed;
+    });
+    await owner.transaction('snapshot', async tx => {
+      const [operation] = await readKindAssertions(tx, 'vertex', 'system.operation', [], { subjectUids: [binding.operationUid] });
+      const [plugin] = await readKindAssertions(tx, 'vertex', 'plugin', ['label'], { subjectUids: [binding.sourceUid] });
+      const [unit] = await readKindAssertions(tx, 'vertex', 'system.unit', [], { subjectUids: [unitUid] });
+      expect(operation?.uid).toBe(binding.operationUid);
+      expect(plugin?.values.label).toBe(producer);
+      expect(unit?.uid).toBe(unitUid);
+      const authors = await readKindAssertions(tx, 'edge', 'system.operation-author', []);
+      const units = await readKindAssertions(tx, 'edge', 'system.operation-unit', []);
+      expect(authors.filter(edge => edge.from === operation!.id).map(edge => edge.to)).toEqual([plugin!.id]);
+      expect(units.filter(edge => edge.from === operation!.id).map(edge => edge.to)).toEqual([unit!.id]);
+    });
   } finally { await owner.close(); }
 });
 

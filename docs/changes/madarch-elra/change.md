@@ -7,11 +7,9 @@ Kind: no-behavior
 
 ## Intent
 
-Check the graph operations that publish the four outputs of a multi-output
-plugin fill. Each operation must have one active author edge to the installed
-plugin and one active unit edge to the unit that published the output.
-Overlapping startup bindings must publish distinct operations under the same
-installed plugin.
+Let a graph operation publish its author and unit edges when the database
+clock moves backward during the write. The multi-output scenario checks the
+active operation and its author and unit for each of the four plugin outputs.
 
 ## Out of scope
 
@@ -19,10 +17,12 @@ Fill progress delivery and plugin sandbox policy.
 
 ## Rationale
 
-The output assertion identifies the operation to read, so the scenario can
-detect missing or misdirected lineage even when its output text is correct.
-The overlapping startup test reads committed graph records to detect duplicate
-plugin installations and attribution to another operation.
+New assertions start at the transaction's timestamp by default. The graph
+writer used the current wall clock to validate the endpoint, so a backward
+clock correction could make an endpoint written by the same transaction appear
+future-dated. The batch checks every endpoint at the later of the current
+clock and the transaction start. This keeps the normal wall-clock check and
+gives newly written endpoints a consistent lower bound.
 
 ## Changes to requirements
 
@@ -44,4 +44,5 @@ Kind: command
 Place: `bun test test/plugin-fill-scenarios.test.ts test/startup-binding.test.ts`
 
 1. Fill A and B separately without a progress sink. Read each output's operation and verify its active author and unit edges.
-2. Overlap two startup calls on one write transaction, then read the committed operations and their author edges.
+2. Simulate a backward clock correction while a startup publishes its author edge, and while an operation links to a newly written unit. Verify both committed edges.
+3. Overlap two startup calls on one write transaction, then read the committed operations and their author edges.
