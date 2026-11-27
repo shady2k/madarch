@@ -520,10 +520,12 @@ test('the preparation panel names a whole unfilled kind and lets a newly picked 
     expect(unfilled?.textContent).toContain('Термины останутся пустыми целиком');
     await act(async () => { page.container.querySelector<HTMLButtonElement>('[data-testid="prepare-agent-claude-code"] [role="radio"]')!.click(); });
     await settle();
-    expect(button.disabled).toBe(false);
-    await act(async () => { button.click(); });
+    const run = page.container.querySelector<HTMLButtonElement>('[data-testid="prepare-run"]')!;
+    expect(run.disabled).toBe(false);
+    await act(async () => { run.click(); });
+    await settle();
     expect(requests.find((request) => request.path.endsWith('/api/fill-selected'))?.body).toMatchObject({ selected: ['demo.beta'], agent: 'claude-code' });
-    expect(page.opened).toContain('/p/run?run=fill-run-1');
+    expect(page.opened).toContain('/p/run?run=fill-run-2');
   } finally { await page.close(); }
 });
 
@@ -680,6 +682,8 @@ test('a server refusal is shown in the reader\'s language by its code', async ()
 });
 
 test('a skipped kind is named and nothing is pressed when no unit would run', async () => {
+  planAnswer = { plan: { ...ALL_PLAN, selectedKinds: ['demo.beta'], kinds: [], order: [], units: [], needsAgent: [],
+    skipped: [{ kind: 'demo.beta', fields: ['definition'], reason: 'no producer in the manifest' }] } };
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.beta' });
   try {
     const text = page.container.textContent ?? '';

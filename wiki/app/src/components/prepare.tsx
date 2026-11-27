@@ -112,7 +112,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const isolationReason = offlineReason ?? (isolationSaving ? t('common.saving') : null);
   const defaultsReason = offlineReason ?? (savedDefaults === 'saving' ? t('common.saving') : agentReason ?? settingsReason);
   const runDisabledReason = offlineReason
-    ?? (busy ? t('prepare.starting') : null)
+    ?? (busy ? t('common.actionInProgress') : null)
     ?? (planRead.busy ? t('prepare.loadingPlan') : null)
     ?? (errors.length > 0 ? t('prepare.fixPlanErrors') : null)
     ?? (isolationBlocked ? t('prepare.isolationRequired') : null)
@@ -190,7 +190,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
     return entry.applicability === undefined && kind?.agentOnly && kind.applicability.state !== 'inapplicable';
   }) : [];
   const unfilled = new Map([...needsAgent, ...deferredKinds].map((entry) => [entry.kind, entry]));
-  const wholeKinds = [...unfilled.keys()].filter((kind) => planKindOf(plan, kind)?.agentOnly).length;
+  const leavesWholeKind = [...unfilled.keys()].some((kind) => planKindOf(plan, kind)?.agentOnly);
   const emptyFields = [...unfilled.values()].reduce((total, need) => total + need.fields.length, 0);
   const otherSkips = skipped.filter((entry) => !deferredKinds.includes(entry));
   const added = new Map(plan.added.map((entry) => [entry.kind, entry.neededBy]));
@@ -338,7 +338,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
           {pluginsOnly && unfilled.size > 0 ? (
             <Disclosure open className="mb-3" data-testid="prepare-unfilled">
               <DisclosureSummary className="cursor-pointer text-small text-muted" data-testid="prepare-unfilled-summary">
-                {wholeKinds > 0 ? t('prepare.unfilledDetails') : t('prepare.unfilledSummary', { fields: t('prepare.fieldsN', { count: emptyFields }), kinds: t('prepare.kindsN', { count: unfilled.size }) })}
+                {leavesWholeKind ? t('prepare.unfilledDetails') : t('prepare.unfilledSummary', { fields: t('prepare.fieldsN', { count: emptyFields }), kinds: t('prepare.kindsN', { count: unfilled.size }) })}
               </DisclosureSummary>
               <PlainList className="m-0 mt-2 list-none p-0">
                 {[...unfilled.values()].map((need) => {
