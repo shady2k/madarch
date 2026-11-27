@@ -9,12 +9,14 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { closureOf } from '../src/plugin/closure.js';
 import { PluginHost } from '../src/plugin/host.js';
+import { closeFileTextSessions, readBlobThroughPlugin } from '../src/plugin/file-reads.js';
 import type { FactsOperation } from '../src/plugin-sdk.js';
 
 const roots: string[] = [];
-afterAll(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterAll(async () => { await closeFileTextSessions(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const REPO = join(import.meta.dir, '..');
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const git = (root: string, ...args: string[]): string => execFileSync('git', args, { cwd: root, env: { ...process.env, ...IDENTITY }, encoding: 'utf8' });
@@ -98,6 +100,66 @@ test('a plugin reads a file through the host, and a range past the byte bound is
   expect(answer.state).toBe('complete');
   // The whole 400 001-character text, though each read the host made was bounded in bytes.
   expect(answer.length).toBe(fixture.bytes);
+}, 60_000);
+
+test('an unconfined host reads a blob through its core reader where nothing confines a plugin', async () => {
+  const fixture = product();
+  const work = mkdtempSync(join(tmpdir(), 'madarch-plugin-file-read-unconfined-'));
+  roots.push(work);
+  // The child names a cgroup that delegates nothing, so the confined path refuses on every machine: the case proves the
+  // read itself runs unconfined, not that the machine can confine a plugin (madarch-64o5.178). The mode is the host's own
+  // `unconfined`, and the variable stays as the child found it in its environment, which the read must not change.
+  const source = `
+    import { closureOf } from ${JSON.stringify(fileURLToPath(new URL('../src/plugin/closure.ts', import.meta.url)))};
+    import { PluginHost } from ${JSON.stringify(fileURLToPath(new URL('../src/plugin/host.ts', import.meta.url)))};
+    import { closeFileTextSessions } from ${JSON.stringify(fileURLToPath(new URL('../src/plugin/file-reads.js', import.meta.url)))};
+    const host = new PluginHost({
+      pluginFolder: ${JSON.stringify(fixture.reader)}, repository: ${JSON.stringify(fixture.folder)},
+      workRoot: ${JSON.stringify(join(work, 'host'))}, trust: 'production', unconfined: true,
+      releaseHashes: [closureOf(${JSON.stringify(fixture.reader)}).hash],
+      env: { ...process.env },
+      operations: { async apply() { return { accepted: true }; } },
+      graph: { ownFacts: async () => ({ vertices: [], edges: [] }), files: async () => [], value: async () => null },
+    });
+    const session = await host.open();
+    let answer = '';
+    try {
+      const outcome = await session.runUnit({ unitId: 'reader', kind: 'probe.read', key: {}, inputs: { blob: ${JSON.stringify(fixture.blob)} } });
+      if (outcome.state !== 'extracted') answer = 'not-extracted ' + outcome.cause.message;
+      else answer = outcome.result.end.state === 'complete' ? 'complete' : 'partial ' + String(outcome.result.end.cause);
+    } finally { await session.close(); }
+    await closeFileTextSessions();
+    console.log(answer);
+    console.log('process ' + String(process.env.MADARCH_PLUGIN_SANDBOX));
+  `;
+  // The child starts without a choice of its own, whatever the run that started it holds: a run already set to
+  // MADARCH_PLUGIN_SANDBOX=off would make the same answer mean nothing about the host's own `unconfined`.
+  const inherited: Record<string, string | undefined> = { ...process.env };
+  delete inherited['MADARCH_PLUGIN_SANDBOX'];
+  const child = Bun.spawn([process.execPath, '--eval', source], {
+    cwd: REPO,
+    env: { ...inherited, MADARCH_PLUGIN_CGROUP: join(work, 'no-cgroup') },
+    stdout: 'pipe', stderr: 'pipe',
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(code, stderr).toBe(0);
+  expect(stdout.trim().split('\n')).toEqual(['complete', 'process undefined']);
+}, 60_000);
+
+test('a reader is opened for the environment of its call, never reused by a call that runs differently', async () => {
+  const fixture = product();
+  // One repository, one process, two environments: the core plugin finds git through the PATH its host was given, so an
+  // empty PATH is refused by name and a full one answers. The second read of the file must not hand the first
+  // environment's reader to the third call (madarch-64o5.178).
+  const read = { product: fixture.folder, plugin: join('plugins', 'git'), repository: 'sample', root: join(fixture.folder, 'repos', 'sample'), blob: fixture.blob };
+  const noGit = { ...process.env, PATH: '' };
+  const before = process.env['MADARCH_PLUGIN_SANDBOX'];
+  await expect(readBlobThroughPlugin(read, { env: noGit, unconfined: true })).rejects.toThrow('no git executable on PATH');
+  const answered = await readBlobThroughPlugin(read, { env: { ...process.env }, unconfined: true });
+  expect(answered.text.startsWith('x')).toBe(true);
+  await expect(readBlobThroughPlugin(read, { env: noGit, unconfined: true })).rejects.toThrow('no git executable on PATH');
+  // The reads answer the settings their call names and never write the process's own.
+  expect(process.env['MADARCH_PLUGIN_SANDBOX']).toBe(before);
 }, 60_000);
 
 test('the same confinement refuses a repository that links out of the product, naming it', async () => {

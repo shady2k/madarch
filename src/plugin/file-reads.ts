@@ -4,10 +4,12 @@
  * lines asked for. The module is the plugin host's own — it opens a sandbox and reads the product's folders — and the
  * queue's side of a read lives in src/knowledge/file-texts.ts.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startSpan } from '../obs/trace.js';
+import { byCodePoint } from '../model/order.js';
 import { PluginHost } from './host.js';
 import { closureOf } from './closure.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from './lock.js';
@@ -111,7 +113,18 @@ interface Reader {
   idle?: ReturnType<typeof setTimeout>;
 }
 
-/** The readers this process holds, by plugin folder and repository: a page's tab asks several ranges of one file. */
+/**
+ * How a read runs its reader plugin: the release closures it trusts, the environment its host runs its own plugins in,
+ * and whether that host runs them without isolation (madarch-64o5.178).
+ */
+export interface BlobReadOptions {
+  readonly releaseHashes?: readonly string[];
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** The host that asks for the text runs its plugins without isolation: the reader it opens does the same. */
+  readonly unconfined?: boolean;
+}
+
+/** The readers this process holds, by plugin folder, repository and the way the reader runs: a page's tab asks several ranges of one file. */
 const READERS = new Map<string, Reader>();
 /** How long a reader stands idle before its sandbox is ended. */
 const READER_IDLE_MS = 30_000;
@@ -133,9 +146,24 @@ export async function closeFileTextSessions(): Promise<void> {
   }
 }
 
+/** The settings a reader's process runs with, digested: two calls whose environments differ never share a reader (madarch-64o5.178). */
+function environmentKey(env: Readonly<Record<string, string | undefined>>): string {
+  const hasher = createHash('sha256');
+  for (const name of Object.keys(env).sort(byCodePoint)) {
+    const value = env[name];
+    if (value !== undefined) hasher.update(`${name}=${value}\u0000`);
+  }
+  return hasher.digest('hex');
+}
+
 /** The reader for one (plugin, repository), opened on first use and reused while it stands. */
-async function readerFor(verified: { pluginFolder: string; repositoryRoot: string }, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>> }): Promise<Reader> {
-  const key = `${verified.pluginFolder}\u0000${verified.repositoryRoot}`;
+async function readerFor(verified: { pluginFolder: string; repositoryRoot: string }, options: BlobReadOptions): Promise<Reader> {
+  // The way the reader runs is part of its key: an unconfined reader never answers a caller that asked for a confined
+  // one, and the other way round, and a reader opened with one environment never answers a call that names another
+  // (madarch-64o5.178) — the plugin finds git on the PATH it was opened with and reads `MADARCH_*` through it.
+  const env = options.env ?? process.env;
+  const mode = env['MADARCH_PLUGIN_SANDBOX'] === 'off' || options.unconfined === true ? 'unconfined' : 'confined';
+  const key = `${verified.pluginFolder}\u0000${verified.repositoryRoot}\u0000${mode}\u0000${environmentKey(env)}`;
   const held = READERS.get(key);
   if (held !== undefined && Date.now() - held.lastUsed < READER_IDLE_MS) { held.lastUsed = Date.now(); return held; }
   if (held !== undefined) {
@@ -152,6 +180,7 @@ async function readerFor(verified: { pluginFolder: string; repositoryRoot: strin
     trust: 'production',
     releaseHashes: options.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.unconfined === true ? { unconfined: true } : {}),
   });
   try {
     const session = await host.open();
@@ -185,10 +214,13 @@ function armIdle(reader: Reader): void {
  * for, and is kept for the next range of the same repository. The plugin names the repository at the path its sandbox
  * gives it, never the host's own.
  */
-export async function readBlobThroughPlugin(read: BlobRead, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>> } = {}): Promise<FileTextResult> {
+export async function readBlobThroughPlugin(read: BlobRead, options: BlobReadOptions = {}): Promise<FileTextResult> {
   const verified = verifyBlobRead(read);
-  const env = options.env ?? process.env;
-  const reader = await readerFor(verified, options);
+  // The reader runs the way the host that asks for the text runs its own plugins (madarch-64o5.178): a host that chose no
+  // isolation opens its reader without isolation too, and the reader is then told the repository's own path, as a child
+  // without a sandbox reads it. The choice is made in a copy — the caller's environment is never changed.
+  const env = options.unconfined === true ? { ...(options.env ?? process.env), MADARCH_PLUGIN_SANDBOX: 'off' } : options.env ?? process.env;
+  const reader = await readerFor(verified, { ...options, env });
   const answer = await reader.session.readBlob({ repository: sandboxRepositoryPath(verified.repositoryRoot, env), blob: read.blob, ...(read.from === undefined ? {} : { from: read.from }), ...(read.to === undefined ? {} : { to: read.to }) });
   reader.lastUsed = Date.now();
   armIdle(reader);
