@@ -44,6 +44,24 @@ recorded after it, and a run that wrote nothing keeps the words it stated.
 - product-wiki/pages: test
 - fill-orchestrator/publish: test
 
+## Where it is seen
+
+Kind: screen
+Place: the run's own page, opened from the fill's history
+Mockup: docs/changes/madarch-64o5.106/run-result.html
+
+1. A person starts a fill of the compiled starter from «Заполнение»: on «Настройка заполнения» they choose «Только
+   плагины», select the Files kinds and press «Запустить заполнение», then open that run from «История заполнений».
+   Its title reads «Создано 740 сущностей», while each producer's group keeps its own rows: the files plugin states 150
+   directories, 588 files and 2 repositories, and the Git plugin states 588 files and 2 repositories. The 588 files and
+   the 2 repositories both producers asserted are one entity each in the title, so the headline counts 740 and not the
+   1 330 rows the groups name.
+2. A run that wrote one kind only reads its kind's line as before: «Файлы: создано 3, изменено 1».
+3. A run recorded before this change opens the same way: the title is read from the run's own lineage and creation
+   classification when the page is opened, so no run is filled again to count each entity once.
+4. A run that wrote nothing keeps the words it stated: «Ничего не создано: плагин не нашёл ни одной сущности» with the
+   producer's cause, or «Ничего не изменено: всё уже было записано» for a run that found everything already written.
+
 ## Blocking questions
 
 None.
