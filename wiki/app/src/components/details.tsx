@@ -13,8 +13,14 @@ import { InlineGroup, Metadata, Text } from './ui/typography.js';
 import { DefinitionList, DefinitionTerm, DefinitionValue, Paragraph } from './ui/typography.js';
 import type { SectionContext } from './types.js';
 
+interface DetailIdentity {
+  readonly id?: unknown;
+  readonly label?: unknown;
+}
+
 interface DetailAssertion {
-  readonly source?: { readonly label?: unknown };
+  readonly source?: DetailIdentity;
+  readonly author?: DetailIdentity;
   readonly recordedAt?: unknown;
   readonly selected?: boolean;
   readonly evidence?: unknown;
@@ -63,10 +69,15 @@ export function DetailsSection({ context }: { readonly context: SectionContext }
   );
 }
 
-/** Who stated the value and where it rests: the selected assertion's source and its first place. */
+/** Who stated the value, on whose behalf, and where it rests. */
 function sourceLine(assertion: DetailAssertion, t: (key: string, options?: Record<string, unknown>) => string): string {
   const producer = typeof assertion.source?.label === 'string' ? assertion.source.label : '';
-  const said = producer === '' ? '' : t('knowledge.details.stated', { producer });
+  const author = typeof assertion.author?.label === 'string' ? assertion.author.label : '';
+  const delegated = author !== '' && typeof assertion.author?.id === 'string' && typeof assertion.source?.id === 'string'
+    && assertion.author.id !== assertion.source.id;
+  const said = producer === '' ? '' : delegated
+    ? t('knowledge.details.statedFor', { producer, author })
+    : t('knowledge.details.stated', { producer });
   const evidence = Array.isArray(assertion.evidence) ? assertion.evidence as Record<string, unknown>[] : [];
   const place = evidence.length === 0 ? '' : placeOf(evidence[0]!);
   const where = place === '' ? '' : t('knowledge.details.place', { place });

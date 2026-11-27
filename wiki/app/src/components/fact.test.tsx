@@ -20,7 +20,7 @@ afterAll(() => { GlobalRegistrator.unregister(); });
 const NAVIGATION = {
   product: 'shop',
   groups: [],
-  kinds: [{ kind: 'demo.file', one: 'File', many: 'Files', definition: null, taken: true, group: null, nav: null, count: 5, entryId: 'entry-1' }],
+  kinds: [{ kind: 'demo.file', one: 'File', many: 'Files', definition: null, taken: true, authored: false, group: null, nav: null, count: 5, entryId: 'entry-1' }],
   purposes: [],
 };
 

@@ -23,9 +23,16 @@ sections:
       name
     params:
       kindPath: name
+  - id: createAuthored
+    component: authored
+    after: fillKind
+    params: { mode: create }
+    query: |
+      name
+      fields { name type nullable }
   - id: facts
     component: facts
-    after: fillKind
+    after: createAuthored
     title: { en: What it is, ru: Что это }
     query: |
       label

@@ -468,6 +468,16 @@ export interface FillRunEntityCount {
   readonly updated: number;
 }
 
+/**
+ * What a run itself wrote of one kind, in distinct entities (madarch-stm0.12): a vertex two producers both asserted is one
+ * entity of the run, so the page's own total counts it once where the producer breakdown names it under each of them.
+ */
+export interface FillRunEntityKindTotal {
+  readonly kind: string;
+  readonly created: number;
+  readonly updated: number;
+}
+
 /** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
@@ -491,6 +501,11 @@ export interface FillRunDetail {
   /** What each producer answered, and what the run wrote in entities: read for the run's own page, absent in a listing. */
   readonly outcomes?: readonly FillRunOutcome[];
   readonly entities?: readonly FillRunEntityCount[];
+  /**
+   * The distinct entities the run wrote of each kind (madarch-stm0.12): its own total, which is not the sum of `entities`
+   * because a vertex two producers asserted stands in both of their rows.
+   */
+  readonly entityTotals?: readonly FillRunEntityKindTotal[];
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
   /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
   readonly agentExchanges?: readonly AgentExchangeView[];
@@ -503,8 +518,16 @@ export interface FillRunDetail {
 
 // ---- the client -------------------------------------------------------------------------------------------------
 
+export interface AuthoredConflict {
+  readonly field: string;
+  readonly current: unknown;
+  readonly author: string;
+}
+
 export class CommandError extends Error {
-  constructor(message: string, readonly code?: string) { super(message); }
+  constructor(message: string, readonly code?: string, readonly status?: number, readonly field?: string, readonly conflict?: AuthoredConflict) {
+    super(message);
+  }
 }
 
 /** Whether a failed read or press could not reach the server at all, rather than being refused by it. */
@@ -515,15 +538,26 @@ export function isOffline(error: unknown): boolean {
 /** The reader's one calm line for a server that cannot be reached; a press that fails shows it instead of a request's words. */
 export const offlineWords = (): string => i18n.t('connection.offline');
 
-function errorOf(body: unknown, status: number): { message: string; code?: string } {
+function errorOf(body: unknown, status: number): CommandError {
   if (body !== null && typeof body === 'object') {
-    const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
-    const refusal = graphRefusalMessage(held.error);
-    if (refusal !== undefined) return { message: refusal, code: 'SCHEMA_INVALID' };
-    if (typeof held.error?.message === 'string') return { message: held.error.message, ...(typeof held.error.code === 'string' ? { code: held.error.code } : {}) };
-    if (typeof held.message === 'string') return { message: held.message };
+    const { message, error } = body as { message?: unknown; error?: { message?: unknown; code?: unknown; path?: unknown; field?: unknown; conflict?: Partial<AuthoredConflict> } };
+    const refusal = graphRefusalMessage(error);
+    if (refusal !== undefined) {
+      const [, root, name] = typeof error?.path === 'string' ? error.path.split('/') : [];
+      const field = root === 'values' ? name?.replaceAll('~1', '/').replaceAll('~0', '~') : undefined;
+      return new CommandError(refusal, 'SCHEMA_INVALID', status, field);
+    }
+    if (typeof error?.message === 'string') {
+      const field = typeof error.field === 'string' ? error.field : undefined;
+      const code = typeof error.code === 'string' ? error.code : undefined;
+      const conflict = error.conflict;
+      return new CommandError(error.message, code, status, field, typeof conflict?.field === 'string' && typeof conflict.author === 'string'
+        ? { field: conflict.field, author: conflict.author, current: conflict.current }
+        : undefined);
+    }
+    if (typeof message === 'string') return new CommandError(message, undefined, status);
   }
-  return { message: `the server answered ${String(status)}` };
+  return new CommandError(`the server answered ${String(status)}`, undefined, status);
 }
 
 /** How many changes the tab's stream has seen; a read is fresh only at the count it answered under. */
@@ -562,7 +596,7 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
   } catch {
     body = undefined;
   }
-  if (!response.ok) { const error = errorOf(body, response.status); throw new CommandError(error.message, error.code); }
+  if (!response.ok) throw errorOf(body, response.status);
   return body as T;
 }
 
@@ -584,6 +618,19 @@ export const planKindsOf = (run: Pick<FillRunDetail, 'selected' | 'order'> | nul
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
 export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });
+}
+
+/** The guarded authored command. Existing entities always carry the revision the reader opened. */
+export function writeAuthored(base: string, kind: string, action:
+  | { readonly method: 'POST'; readonly values: Readonly<Record<string, unknown>> }
+  | { readonly method: 'PATCH'; readonly uid: string; readonly revision: string; readonly values: Readonly<Record<string, unknown>> }
+  | { readonly method: 'DELETE'; readonly uid: string; readonly revision: string },
+): Promise<{ readonly entity: { readonly uid: string } }> {
+  return command(base, `/api/authored${searchString({ kind, uid: 'uid' in action ? action.uid : undefined })}`, {
+    method: action.method,
+    ...('revision' in action ? { headers: { 'if-match': `"${action.revision}"` } } : {}),
+    body: JSON.stringify('values' in action ? { values: action.values } : {}),
+  });
 }
 
 /** `GET /api/product`: the product's identity, read from its manifest alone. */

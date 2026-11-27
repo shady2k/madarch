@@ -180,9 +180,13 @@ export function groupCauseWords(result: GroupResult, t: TFunction): string | nul
   return null;
 }
 
-/** The run's own result, as its title states it: what it wrote, or that it wrote nothing and who found nothing. */
+/**
+ * The run's own result, as its title states it: what it wrote, or that it wrote nothing and who found nothing. The
+ * count is of the run's entities, each one once (madarch-stm0.12): a file both a files plugin and a Git plugin asserted
+ * is one entity the run wrote, so the title reads the kinds' distinct totals and never their producer rows' sum.
+ */
 export function runResultWords(run: FillRunDetail, agentOf: (plugin: string) => boolean, labelOf: (kind: string) => string | undefined, t: TFunction): string {
-  const counted = (run.entities ?? []).filter((one) => one.created + one.updated > 0);
+  const counted = (run.entityTotals ?? []).filter((one) => one.created + one.updated > 0);
   if (counted.length > 0) {
     const kinds = [...new Set(counted.map((one) => one.kind))];
     if (kinds.length === 1) {

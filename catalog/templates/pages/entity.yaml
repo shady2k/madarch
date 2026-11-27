@@ -22,6 +22,16 @@ sections:
       kindPath: kind
       chainPath: trail
       provenancePath: origin
+  - id: editAuthored
+    component: authored
+    after: header
+    params: { mode: edit }
+    query: |
+      id
+      kind
+      label
+      revision
+      details { name type key value }
   # Every field the kind declares, with the value its producers agreed and the place each opinion rests on: the page a
   # template has not described still says what the graph knows of it (madarch-64o5.134).
   - id: details

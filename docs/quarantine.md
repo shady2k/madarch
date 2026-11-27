@@ -58,3 +58,16 @@ After the repair is verified, remove the wrapper call (and any unused helper
 import). The unchanged test name then returns to the ordinary blocking suite.
 Setting `MADARCH_QUARANTINE=1` manually enables all wrappers in a selected file;
 use `test:quarantine` rather than enabling it for the full root test suite.
+
+## Restoration criteria
+
+A marker names its repair task, its reason and the commit that introduced the case. What restores the case is
+recorded here, because that is the fact a reader of the marker needs and the marker's four fields have no room for it.
+
+- `test/status-work.test.ts`, *a manifest edited and committed beside the product shows after the fill, and the wiki
+  never reads the file itself* — `flaky`, repair `madarch-stm0.13`. Restored when the case passes inside the sixty
+  seconds it inherits from the file's `setDefaultTimeout` on the required runner. The fill this case drives reached
+  that limit on `main` before and after madarch-stm0.12's change, and the status request after the fill was never
+  asked; the third case therefore runs in the allowed-to-fail `quarantine` job, and the required `slow file`
+  job runs the two cases that remain. Restoring it means removing the wrapper and its import, and setting the
+  `test/status-work.test.ts` row of the `slow-files` matrix in `.github/workflows/ci.yml` back to three cases.
