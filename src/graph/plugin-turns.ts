@@ -45,6 +45,7 @@ export async function referenceOf(tx: SqlExecutor, contract: GraphContract, kind
 /** Batch the same effective key-edge reads as referenceOf, once per reachable kind. */
 export async function referencesOf(tx: SqlExecutor, contract: GraphContract, kind: string, ids: readonly number[], selector: { readonly validAt?: string; readonly recordedAt?: string } = {}): Promise<Map<number, import('./contract.js').EntityRefDraft>> {
   return await withSpan('graph.plugin-turns.referencesOf', {}, async () => {
+    if (ids.length === 0) return new Map();
     const kinds = new Set<string>();
     const edgeKinds = new Set<string>();
     const visit = (name: string): void => {

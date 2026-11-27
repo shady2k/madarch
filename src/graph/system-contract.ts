@@ -162,13 +162,15 @@ const sqlText=(value:string):string=>"'" + value.replaceAll("'","''") + "'";
 /**
  * Whether the store holds any vertex of one kind, as a SQL predicate: one index probe from the kind's own row.
  *
- * The `node JOIN entity` pair this replaces reads every node once the store carries statistics — measured on a
- * store of two fifty-unit runs, 3 519 node rows for the question "is there a merge at all", whose answer is the
- * same on a store of five units — while the kind's row and one index probe cost the same on any store.
- * `OFFSET 0` keeps the probe a plan of its own, the idiom of `write.ts` and `graph-definition.ts`.
+ * Seek to the first node at or above the requested kind. The ordered probe stays bounded when most
+ * nodes belong to one kind and the planner estimates that a sequential scan will find a match early.
  */
 export const vertexKindPresentSql=(kind:string):string=>
-  `EXISTS(SELECT 1 FROM node present_node WHERE present_node.entity_id=(SELECT id FROM entity WHERE name=${sqlText(kind)}) OFFSET 0)`;
+  `EXISTS(SELECT 1 FROM entity present_kind
+    CROSS JOIN LATERAL (
+      SELECT entity_id FROM node WHERE entity_id>=present_kind.id ORDER BY entity_id LIMIT 1
+    ) first_node
+    WHERE present_kind.name=${sqlText(kind)} AND first_node.entity_id=present_kind.id)`;
 
 /** The same question for an edge kind, through the index whose first column is each edge's kind. */
 export const edgeKindPresentSql=(kind:string):string=>

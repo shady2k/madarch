@@ -3,13 +3,17 @@
  * repository, path and key edges of every file once: its statement count does not grow with the number of files,
  * its rows are the same rows in the same order, and its failures are the same failures.
  */
-import { expect, spyOn, test } from 'bun:test';
-import { Client } from 'pg';
+import { expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { graphFiles } from '../src/graph/plugin-turns.js';
+import { closeTrace, openTrace, runInTrace } from '../src/obs/trace.js';
+import { readTraceSpans } from '../src/obs/trace-report.js';
 import { bindTestWriteCapability } from './write-capability-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import type { GraphContract } from '../src/graph/contract.js';
@@ -90,48 +94,57 @@ async function deleteRepositoryNode(owner: DatabaseOwner, name: string): Promise
   });
 }
 
-/** Statements one call of `graphFiles` issues, in both the text and the parameterized client form. */
-async function countStatements(owner: DatabaseOwner, contract: GraphContract): Promise<{ rows: readonly unknown[]; statements: string[] }> {
-  const statements: string[] = [];
-  const original = Client.prototype.query;
-  const spy = spyOn(Client.prototype, 'query').mockImplementation(function (this: Client, ...args: unknown[]) {
-    const first = args[0] as unknown;
-    if (typeof first === 'string') statements.push(first);
-    else if (first !== null && typeof first === 'object' && typeof (first as { text?: unknown }).text === 'string') statements.push((first as { text: string }).text);
-    return Reflect.apply(original, this, args) as never;
-  } as typeof original);
-  try { return { rows: await graphFiles(owner, contract), statements }; } finally { spy.mockRestore(); }
+/** Count the whole listing and the SQL it runs within reference resolution, including nested graph reads. */
+async function measureListing(owner: DatabaseOwner, contract: GraphContract) {
+  const store = mkdtempSync(join(tmpdir(), 'graph-plugin-files-'));
+  try {
+    const trace = openTrace({ store, runId: 'listing' });
+    const rows = await runInTrace(trace, () => graphFiles(owner, contract)).finally(() => closeTrace(trace));
+    const spans = readTraceSpans(trace.file);
+    const byId = new Map(spans.map(span => [span.spanId, span]));
+    const inReferenceRead = (parentId: string | undefined): boolean => {
+      for (let id = parentId; id !== undefined; id = byId.get(id)?.parentSpanId) {
+        if (byId.get(id)?.name === 'graph.plugin-turns.referencesOf') return true;
+      }
+      return false;
+    };
+    const statements = spans.filter(span => span.name === 'db.statement' || span.name === 'db.query' || span.name === 'db.commit');
+    return { rows, statements: statements.length,
+      referenceStatements: statements.filter(span => inReferenceRead(span.parentSpanId)).length };
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
 }
 
 test('file listing issues the same statements for 10 and for 200 files', async () => {
-  // The brief's bound is eight statements for the reference resolution. The four `readKindAssertions` calls of the
-  // existing readers cost 18 statements (each goes through the assertion loader), the one batch read and its node
-  // read cost 7, and the transaction costs 1, so the fixed cost is 26. The test therefore compares that fixed cost
-  // with an empty graph's call and holds only what reference resolution adds to the brief's eight.
+  // Empty assertion batches can skip their own reads independently of the cost of resolving file references.
   const { owner, contract, publish } = await fixture();
   try {
-    const empty = await countStatements(owner, contract);
+    const empty = await measureListing(owner, contract);
     expect(empty.rows).toEqual([]);
+    expect(empty.referenceStatements).toBe(0);
     const ten = Array.from({ length: 10 }, (_, index) => `f${String(index)}.ts`);
     await publish({
       vertices: [repositoryDraft('repo'), ...ten.map((path) => file(path, 'repo'))], removals: [],
       edges: ten.map((path) => membership(path, 'repo')),
     });
-    const small = await countStatements(owner, contract);
+    const small = await measureListing(owner, contract);
     const rest = Array.from({ length: 190 }, (_, index) => `f${String(index + 10).padStart(3, '0')}.ts`);
     await publish({
       vertices: rest.map((path) => file(path, 'repo')), removals: [],
       edges: rest.map((path) => membership(path, 'repo')),
     });
-    const large = await countStatements(owner, contract);
+    const large = await measureListing(owner, contract);
     console.log('graphFiles statements', JSON.stringify({
-      empty: empty.statements.length, ten: small.statements.length, twoHundred: large.statements.length,
-      referenceResolution: small.statements.length - empty.statements.length,
+      empty: empty.statements, ten: small.statements, twoHundred: large.statements,
+      referenceResolution: [small.referenceStatements, large.referenceStatements],
     }));
     expect(small.rows).toHaveLength(10);
     expect(large.rows).toHaveLength(200);
-    expect(large.statements.length).toBe(small.statements.length);
-    expect(small.statements.length - empty.statements.length).toBeLessThanOrEqual(8);
+    expect(large.statements).toBe(small.statements);
+    expect(small.referenceStatements).toBeGreaterThan(0);
+    expect(large.referenceStatements).toBe(small.referenceStatements);
+    expect(large.referenceStatements).toBeLessThanOrEqual(8);
   } finally { await owner.close(); }
 }, 180_000);
 

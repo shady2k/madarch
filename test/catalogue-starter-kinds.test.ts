@@ -19,6 +19,12 @@ import { byCodePoint } from '../src/model/order.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { setManifestPublicationState } from '../src/product/manifest-publication-state.js';
+import { startServer } from '../src/server/http.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { traceFiles } from '../src/obs/trace.js';
+import { TraceSpanReader } from '../src/obs/trace-report.js';
 
 test('a starter product publishes its catalogue and distinguishes starter evidence from stale source evidence', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-catalogue-kinds-'));
@@ -117,4 +123,65 @@ test('a starter product publishes its catalogue and distinguishes starter eviden
     if (owner !== undefined) await owner.close();
     rmSync(root, { recursive: true, force: true });
   }
+}, 60_000);
+
+test('the Problems API reads a cold listing and count on the populated starter catalogue', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-problems-api-'));
+  try {
+    const draft = createDraft({ home: root, name: 'problem-fixture', template: 'everything', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+    if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+    const folder = draft.folder;
+    const validation = validateProductManifests(folder);
+    if (!validation.ok || validation.value === undefined) throw new Error(JSON.stringify(validation));
+    const knowledgeRoot = knowledgeRootOf(root);
+    const contract = withManifestContract(graphContractOf(validation.value.manifest));
+    const catalogue = validation.value.vertices.find(draft => draft.kind === 'manifest.catalogue' && draft.key['name'] === 'product');
+    if (catalogue === undefined) throw new Error(`${folder}:1: fixture has no catalogue draft`);
+    const owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), graphContract: contract });
+    try {
+      const blob = { kind: 'code.blob', key: { digest: sha256Hex(Buffer.from('unsupported bytes')) }, values: { content: 'unsupported bytes' } };
+      const producer = { producer: 'fixture', producerVersion: '1' };
+      await owner.transaction('write', async tx => {
+        await bindTestWriteCapability(tx, contract);
+        await publishGraphDrafts(tx, contract, { vertices: [
+          { ...catalogue, evidence: [] }, { ...blob, ...producer },
+          { kind: 'idea', key: { identifier: 'sample' }, values: { title: 'Sample', status: 'proposed' }, evidence: [{ target: blob }], ...producer },
+        ], edges: [], removals: [] });
+      });
+      setManifestPublicationState(folder, { status: 'published' });
+      const errors: string[] = [];
+      const readings: { path: string; milliseconds: number; open: number }[] = [];
+      for (const path of ['/api/problems', '/api/problems?count=1']) {
+        const server = await startServer({ productFolder: folder, knowledgeRoot, appFolder: root, port: 0, fillProcess: false,
+          log: () => {}, errorLog: line => errors.push(line) });
+        try {
+          // Open the store without collecting a Problems listing on this server.
+          const schema = await fetch(`${server.url}/graphql/schema`);
+          expect(schema.status, JSON.stringify(errors)).toBe(200);
+          await schema.text();
+          const started = performance.now();
+          const response = await fetch(`${server.url}${path}`);
+          const body = await response.json() as { open: number; problems?: { rule: string }[] };
+          readings.push({ path, milliseconds: Math.round(performance.now() - started), open: body.open });
+          expect(response.status, JSON.stringify({ body, errors })).toBe(200);
+          if (path === '/api/problems') expect(body.problems?.some(row => row.rule === 'evidence-applicability')).toBe(true);
+          else expect(body.problems).toBeUndefined();
+        } finally { await server.stop(); }
+        const spans = new TraceSpanReader().read(traceFiles(knowledgeRoot)[0]!.file);
+        const evidence = spans.filter(span => span.name === 'graph.vanishedCurrentEvidence');
+        expect(evidence).toHaveLength(1);
+        const transaction = spans.find(span => span.parentSpanId === evidence[0]!.spanId && span.name === 'db.transaction');
+        expect(transaction).toBeDefined();
+        const reads = spans.filter(span => span.parentSpanId === transaction!.spanId);
+        expect(reads.filter(span => span.name === 'graph.currentEvidence.links').map(span => span.attributes['graph.evidence.links'])).toEqual([4]);
+        const batches = new Set(reads.filter(span => span.name === 'graph.records.batch').map(span => span.spanId));
+        expect(spans.filter(span => span.parentSpanId !== undefined && batches.has(span.parentSpanId) && span.name === 'graph.assertions.read')
+          .map(span => [span.attributes['graph.kinds'], span.attributes['graph.subject.counts']])).toEqual([['["idea"]', '[1]']]);
+        expect(spans.filter(span => span.traceId === evidence[0]!.traceId && span.name === 'manifest.readPublished')).toHaveLength(1);
+      }
+      expect(readings[0]!.open).toBeGreaterThan(0);
+      expect(readings[1]!.open).toBe(readings[0]!.open);
+      console.info(JSON.stringify(readings));
+    } finally { await owner.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);

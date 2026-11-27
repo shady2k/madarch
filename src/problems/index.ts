@@ -57,10 +57,49 @@ function problemOf(draft: ProblemDraft): Problem {
   };
 }
 
+async function readEvidenceProblems(input: CollectInput): Promise<{ drafts: ProblemDraft[]; notes: ProblemNote[] }> {
+  const drafts: ProblemDraft[] = [];
+  const notes: ProblemNote[] = [];
+  // Decision 0039 items 19/31: current applicability is independent of historical validity.
+  const rule = 'evidence-applicability';
+  const evidenceRule = input.settings.rules[rule];
+  if (evidenceRule === undefined || evidenceRule.enabled === false) {
+    const dismissalPrefix = problemId(rule, '');
+    if (![...input.dismissed ?? []].some(id => id.startsWith(dismissalPrefix))) return { drafts, notes };
+  }
+  try {
+    const contract = graphContractOf(input.manifest);
+    let after: string | undefined;
+    do {
+      const page = await vanishedCurrentEvidence(input.owner, contract, { manifest: input.manifest, ...(after === undefined ? {} : { after }) });
+      for (const finding of page.rows) {
+        const path = typeof finding.evidence.locator?.['path'] === 'string' ? finding.evidence.locator['path'] : '';
+        const line = typeof finding.evidence.locator?.['lineStart'] === 'number' ? finding.evidence.locator['lineStart'] : 1;
+        const target = finding.evidence.target.kind;
+        const identity = `${finding.kind}:${JSON.stringify(finding.key)}:opinion:${finding.opinion}:${JSON.stringify(finding.evidence)}`;
+        drafts.push({
+          identity, section: 'code', rule, kind: 'bug', sonar: 'bug', severity: 'major',
+          closed: false, text: { code: 'consistencyFinding', args: { cause: `${target}/${path}:${String(line)}: ${finding.reason}` } },
+          file: path, line, page: null, pageTitle: null, statement: null, sentence: null, target: null,
+          place: { label: path || finding.kind, href: null, key: null },
+          entity: { label: finding.kind, href: null, key: JSON.stringify(finding.key) },
+          evidence: [{ label: `${target}/${path}:${String(line)}`, href: null, key: null }],
+          by: null, at: null, source: finding.producer,
+        });
+      }
+      after = page.next;
+    } while (after !== undefined);
+  } catch (error) {
+    notes.push({ message: `the evidence applicability check could not be read: ${(error as Error).message}`, textKey: 'consistencyUnread', textArgs: { error: (error as Error).message } });
+  }
+  return { drafts, notes };
+}
+
 /** Collects the three sections: code rules over the graph, an explicit note for retired Markdown question rules, the wiki's own findings. */
 export async function collectProblems(input: CollectInput): Promise<Awaited<ReturnType<typeof listProblems>>> {
   const notes: ProblemNote[] = [];
   const drafts: ProblemDraft[] = [];
+  const evidenceProblems = readEvidenceProblems(input);
   try {
     const snapshot = await readCodeSnapshot(input.graph, input.manifest);
     const judged = evaluateCode(snapshot, input.settings);
@@ -95,31 +134,8 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   } catch (error) {
     notes.push({ message: `the consistency section could not be read: ${(error as Error).message}`, textKey: 'consistencyUnread', textArgs: { error: (error as Error).message } });
   }
-  // Decision 0039 items 19/31: current applicability is independent of historical validity.
-  try {
-    let after: string | undefined;
-    do {
-      const page = await vanishedCurrentEvidence(input.owner, graphContractOf(input.manifest), after === undefined ? {} : { after });
-      for (const finding of page.rows) {
-        const path = typeof finding.evidence.locator?.['path'] === 'string' ? finding.evidence.locator['path'] : '';
-        const line = typeof finding.evidence.locator?.['lineStart'] === 'number' ? finding.evidence.locator['lineStart'] : 1;
-        const target = finding.evidence.target.kind;
-        const identity = `${finding.kind}:${JSON.stringify(finding.key)}:opinion:${finding.opinion}:${JSON.stringify(finding.evidence)}`;
-        drafts.push({
-          identity, section: 'code', rule: 'evidence-applicability', kind: 'bug', sonar: 'bug', severity: 'major',
-          closed: false, text: { code: 'consistencyFinding', args: { cause: `${target}/${path}:${String(line)}: ${finding.reason}` } },
-          file: path, line, page: null, pageTitle: null, statement: null, sentence: null, target: null,
-          place: { label: path || finding.kind, href: null, key: null },
-          entity: { label: finding.kind, href: null, key: JSON.stringify(finding.key) },
-          evidence: [{ label: `${target}/${path}:${String(line)}`, href: null, key: null }],
-          by: null, at: null, source: finding.producer,
-        });
-      }
-      after = page.next;
-    } while (after !== undefined);
-  } catch (error) {
-    notes.push({ message: `the evidence applicability check could not be read: ${(error as Error).message}`, textKey: 'consistencyUnread', textArgs: { error: (error as Error).message } });
-  }
+  const evidence = await evidenceProblems;
+  notes.push(...evidence.notes);
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));
   const listing = await listProblems({
@@ -128,7 +144,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     ...(input.repository === undefined ? {} : { repository: input.repository }),
     ...(input.unplaced === undefined ? {} : { unplaced: input.unplaced }),
     ...(input.dismissed === undefined ? {} : { dismissed: input.dismissed }),
-    extraProblems: drafts.map(problemOf),
+    extraProblems: drafts.concat(evidence.drafts).map(problemOf),
   });
   // «Создать задачу» already opened a task for some of these problems: each row links to its task instead of offering a
   // second one (madarch-64o5.104). A task of a problem the page no longer lists is not linked, and is not judged here.

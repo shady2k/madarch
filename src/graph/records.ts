@@ -1,8 +1,10 @@
 /** Effective graph records from typed assertions (decision 0039, items 14, 25 and 30). */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { GraphContract } from './contract.js';
+import type { GraphContract, KeyValueDraft } from './contract.js';
 import type { SqlExecutor } from '../sql-driver.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
+import { raise } from '../model/raise.js';
 import { checkRoleProperties, semanticRoleFields } from '../model/semantic-role-protocol.js';
 import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { listDisputeSlots } from './dispute-read.js';
@@ -73,6 +75,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
     if (statements.length > 0) for (const row of (await tx.query<Identity & { request_index: number }>(statements.join(' UNION ALL '),parameters)).rows) identities[Number(row.request_index)]!.push(row);
     const disputable = requests.some(request => ['$exists', ...request.fields].some(property => isDisputableProperty(request.sort, request.kind, property)));
     if (disputable && selector.contract === undefined) throw new Error(`${import.meta.path}:72: product assertion reads require an explicit graph contract for dispute resolution`);
+    if (identities.every(rows => rows.length === 0)) return requests.map(() => []);
     let snapshot: { now: string | Date; anchored: boolean } | undefined;
     // Pages and fill lookups already supplied identities. Probe for persisted questions
     // in their assertion statement; only an anchored dispute needs the full lineage read.
@@ -125,10 +128,10 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
 type SemanticRecord = Omit<AssertionRecord, 'key'>;
 
 interface SemanticRequest { readonly role: string; readonly fields: readonly string[]; readonly edgeRole?: string }
-async function semanticRecordBatch(tx: SqlExecutor, requests: readonly SemanticRequest[]): Promise<SemanticRecord[][]> {
+async function semanticRecordBatch(tx: SqlExecutor, requests: readonly SemanticRequest[], published?: KindsManifest): Promise<SemanticRecord[][]> {
   const { readPublishedManifest } = await import('./manifest-publication.js');
   const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
-  const manifest = await readPublishedManifest(tx);
+  const manifest = published ?? await readPublishedManifest(tx);
   if (manifest === undefined) throw new Error(`${import.meta.path}:113: semantic graph reads require the published manifest`);
   const contract = graphContractOf(manifest);
   const plans = requests.map(({ role, fields, edgeRole }) => {
@@ -195,11 +198,23 @@ function contained(root: number, edges: readonly SemanticRecord[]): Set<number> 
 }
 function file(row:SemanticRecord):FileRecord { const v=row.values; return {path:String(v['path']),mode:text(v['mode']),blob:text(v['blob']),bytes:number(v['bytes']),form:v['form']==='text'||v['form']==='binary'?v['form']:null,lines:number(v['lines']),language:text(v['language']),candidates:Array.isArray(v['languages'])?v['languages'] as string[]:[]}; }
 
-async function files(tx:SqlExecutor,name:string) { const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const repo=repositories.find(r=>r.values['name']===name);if(repo===undefined)return [];const [contains=[],allFiles=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:fileFields}]);const ids=contained(Number(repo.id),contains!);return allFiles!.filter(f=>ids.has(Number(f.id))).sort((a,b)=>String(a.values['path'])<String(b.values['path'])?-1:1); }
-export async function listFiles(owner:DatabaseOwner,input:{readonly repository:string;readonly prefix?:string;readonly language?:string;readonly after?:string;readonly limit:number;readonly projection?:'map'}):Promise<{readonly rows:readonly FileRecord[];readonly next:string|null}> {
- return await withSpan('records.listFiles',{},async()=>await owner.transaction('snapshot',async tx=>{const all=(await files(tx,input.repository)).map(file).filter(f=>(input.prefix===undefined||f.path.startsWith(input.prefix))&&(input.language===undefined||f.language===input.language)&&(input.after===undefined||f.path>input.after));const rows=all.slice(0,input.limit);return {rows,next:all.length>input.limit?rows.at(-1)!.path:null};}));
+async function files(tx: SqlExecutor, name: string, manifest?: KindsManifest) {
+  const [repositories = []] = await semanticRecordBatch(tx, [{ role: 'repository', fields: repoFields }], manifest);
+  const repository = repositories.find(row => row.values['name'] === name);
+  if (repository === undefined) return [];
+  const [contains = [], allFiles = []] = await semanticRecordBatch(tx, [
+    { role: 'repository', fields: [], edgeRole: 'contains' },
+    { role: 'file', fields: fileFields },
+  ], manifest);
+  const ids = contained(repository.id, contains);
+  return allFiles.filter(row => ids.has(row.id)).sort((a, b) => String(a.values['path']) < String(b.values['path']) ? -1 : 1);
 }
-export async function productFileIndex(owner:DatabaseOwner,repository:string) { return (await listFiles(owner,{repository,limit:Number.MAX_SAFE_INTEGER})).rows; }
+export async function listFiles(owner:DatabaseOwner,input:{readonly repository:string;readonly prefix?:string;readonly language?:string;readonly after?:string;readonly limit:number;readonly projection?:'map'}, manifest?: KindsManifest):Promise<{readonly rows:readonly FileRecord[];readonly next:string|null}> {
+ return await withSpan('records.listFiles',{},async()=>await owner.transaction('snapshot',async tx=>{const all=(await files(tx,input.repository,manifest)).map(file).filter(f=>(input.prefix===undefined||f.path.startsWith(input.prefix))&&(input.language===undefined||f.language===input.language)&&(input.after===undefined||f.path>input.after));const rows=all.slice(0,input.limit);return {rows,next:all.length>input.limit?rows.at(-1)!.path:null};}));
+}
+export async function productFileIndex(owner: DatabaseOwner, repository: string, manifest?: KindsManifest) {
+  return (await listFiles(owner, { repository, limit: Number.MAX_SAFE_INTEGER }, manifest)).rows;
+}
 export async function listRepositories(owner:DatabaseOwner,_declared?:ReadonlySet<string>):Promise<readonly {name:string;url:string;defaultBranch:string|null;asIsCommit:string|null}[]> { return await withSpan('records.repositories',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repos=[],edges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);return repos.map(r=>({name:String(r.values['name']),url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===edges.find(e=>e.from===r.id)?.to),'hash'))})).sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);})); }
 export async function repositoryFacts(owner:DatabaseOwner,name:string,_declared?:ReadonlySet<string>):Promise<RepositoryFacts|null> { return await withSpan('records.repositoryFacts',{},async()=>await owner.transaction('snapshot',async tx=>{ const [repositories=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:repoFields}]);const r=repositories.find(r=>r.values['name']===name);if(r===undefined)return null;const [contains=[],fs=[],dirs=[],history=[],asIsEdges=[],commits=[]]=await semanticRecordBatch(tx,[{role:'repository',fields:[],edgeRole:'contains'},{role:'file',fields:[]},{role:'directory',fields:[]},{role:'repository',fields:[],edgeRole:'history'},{role:'repository',fields:[],edgeRole:'asIs'},{role:'commit',fields:['hash']}]);const ids=contained(Number(r.id),contains);const asIs=asIsEdges.find(e=>e.from===r.id);return {nodeId:String(r.id),name,url:text(r.values['url'])??'',defaultBranch:text(r.values['default_branch']),asIsCommit:text(scalar(commits.find(c=>c.id===asIs?.to),'hash')),hasTree:typeof r.values['tree_snapshot'] === 'string' && r.values['tree_snapshot'].length > 0,fileCount:fs.filter(f=>ids.has(f.id)).length,directoryCount:dirs.filter(d=>ids.has(d.id)).length,commitCount:history.filter(e=>e.from===r.id).length,historyShallow:typeof r.values['history_shallow']==='boolean'?r.values['history_shallow']:null};})); }
 function gitClock(value:unknown,offset:number):string { if(value==null)return '';const local=new Date(new Date(String(value)).getTime()+offset*60000).toISOString().slice(0,19);return `${local}${offset<0?'-':'+'}${String(Math.floor(Math.abs(offset)/60)).padStart(2,'0')}:${String(Math.abs(offset)%60).padStart(2,'0')}`; }
@@ -245,52 +260,152 @@ export interface StaleEvidence {
   readonly state: import('./evidence-read.js').EvidenceState;
 }
 
+type EvidencePosition = {
+  readonly from_node: number;
+  readonly to_node: number;
+  readonly discriminator: string;
+  readonly context_id: number;
+};
+
+type CurrentEvidenceLink = EvidencePosition & {
+  readonly cursor: string;
+  readonly assertion_uid: string;
+  readonly property: string;
+  readonly sort: 'vertex' | 'edge';
+  readonly kind: string;
+  readonly subject_id: number;
+  readonly target: string;
+  readonly target_kind: string;
+  readonly target_key: Record<string, KeyValueDraft>;
+};
+
+function invalidEvidenceCursor(cursor: string): never {
+  raise(`evidence cursor ${cursor} names no stored attachment`);
+}
+
+async function evidencePosition(tx: SqlExecutor, cursor: string): Promise<EvidencePosition> {
+  const [assertionUid, linkUid, ...rest] = cursor.split(':');
+  if (!assertionUid || !linkUid || rest.length !== 0) invalidEvidenceCursor(cursor);
+  return await withSpan('graph.currentEvidence.cursor', {}, async () => {
+    const { rows } = await tx.query<EvidencePosition>(`
+      SELECT e.from_node,e.to_node,e.discriminator,e.context_id
+      FROM edge e JOIN node origin ON origin.id=e.from_node
+      WHERE e.uid=CASE WHEN pg_input_is_valid($1::text,'uuid') THEN $1::uuid END
+        AND origin.uid=CASE WHEN pg_input_is_valid($2::text,'uuid') THEN $2::uuid END
+        AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')`, [linkUid, assertionUid]);
+    return rows[0] ?? invalidEvidenceCursor(cursor);
+  });
+}
+
+async function currentEvidenceLinks(tx: SqlExecutor, after: EvidencePosition | undefined, limit: number, now: string): Promise<CurrentEvidenceLink[]> {
+  const seek = after === undefined ? '' : `
+        AND (e.from_node,e.to_node,e.discriminator,e.context_id)>($3::bigint,$4::bigint,$5::text,$6::bigint)`;
+  const params = after === undefined ? [now, limit] : [now, limit, after.from_node, after.to_node, after.discriminator, after.context_id];
+  return await withSpan('graph.currentEvidence.links', {}, async span => {
+    const { rows } = await tx.query<CurrentEvidenceLink>(`
+    WITH links AS MATERIALIZED (
+      SELECT e.uid,e.from_node,e.to_node,e.discriminator,e.context_id,a.property
+      FROM edge e
+      CROSS JOIN LATERAL (
+        SELECT property FROM assertion
+        WHERE assertion_id=e.from_node AND operation='assert' AND recorded_at<=$1::timestamptz
+          AND valid_from<=$1::timestamptz AND (valid_to IS NULL OR valid_to>$1::timestamptz)
+        OFFSET 0
+      ) a
+      WHERE e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-evidence')${seek}
+      ORDER BY e.from_node,e.to_node,e.discriminator,e.context_id LIMIT $2
+    )
+    SELECT origin.uid::text || ':' || links.uid::text AS cursor,origin.uid::text AS assertion_uid,
+      links.from_node,links.to_node,links.discriminator,links.context_id,links.property,
+      CASE WHEN vertex.id IS NULL THEN 'edge' ELSE 'vertex' END AS sort,kind.name AS kind,
+      CASE WHEN vertex.id IS NOT NULL AND ${vertexKindPresentSql('system.merge')}
+        THEN graph_assertion_target(vertex.id,links.from_node,1,$1::timestamptz,$1::timestamptz)
+        ELSE coalesce(vertex.id,relation.id) END AS subject_id,
+      target.uid::text AS target,target_kind.name AS target_kind,target.key AS target_key
+    FROM links
+    JOIN node origin ON origin.id=links.from_node
+    LEFT JOIN assertion_vertex_subject av ON av.assertion_id=links.from_node
+    LEFT JOIN edge subject ON subject.id=av.subject_edge_id
+    LEFT JOIN node vertex ON vertex.id=subject.to_node
+    LEFT JOIN assertion_edge_subject ae ON ae.assertion_id=links.from_node
+    LEFT JOIN edge relation ON relation.id=ae.edge_id
+    JOIN entity kind ON kind.id=coalesce(vertex.entity_id,relation.entity_id)
+    JOIN node target ON target.id=links.to_node JOIN entity target_kind ON target_kind.id=target.entity_id
+    ORDER BY links.from_node,links.to_node,links.discriminator,links.context_id`, params);
+    span.setAttribute('graph.evidence.links', rows.length);
+    return rows;
+  });
+}
+
 /** Evaluate current assertion support without rewriting its independent historical validity. */
-export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: import('./consistency.js').ConsistencyQuery & { readonly manifest?: Pick<KindsManifest, 'semanticBindings'> } = {}): Promise<import('./consistency.js').ConsistencyPage<StaleEvidence>> {
   const limit = query.limit ?? 200;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${import.meta.path}:181: evidence page limit must be an integer from 1 to 1000`);
   return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => {
     const { readPublishedManifest } = await import('./manifest-publication.js');
     const { evidenceSupportRoles } = await import('./evidence-support.js');
     const { readEvidenceStates } = await import('./evidence-read.js');
-    const manifest = await readPublishedManifest(tx);
-    const support = evidenceSupportRoles(manifest?.semanticBindings);
     const now = new Date((await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now).toISOString();
     const selector = { validAt: now, recordedAt: now, contexts: [1] };
-    const candidates: { kind: string; key: Record<string, unknown>; assertion: StoredAssertion; target: string; targetKind: string; targetKey: Record<string, import('./contract.js').KeyValueDraft>; locator: Record<string, unknown>; relation: string; cursor: string }[] = [];
-    for (const sort of ['vertex', 'edge'] as const) for (const kind of contract[sort]) {
-      const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
-      const records = await readKindAssertions(tx, sort, kind.name, fields, { contract, ...selector });
-      for (const record of records) {
-        const active = new Set(record.activeSources);
-        const assertions = record.assertions.filter(assertion => assertion.active && active.has(assertion.source) && assertion.evidence.length > 0);
-        if (assertions.length === 0) continue;
-        const links = await tx.query<{ assertion: string; target: string; target_kind: string; target_key: Record<string, import('./contract.js').KeyValueDraft>; discriminator: string; uid: string }>(
-          `SELECT origin.uid::text AS assertion,target.uid::text AS target,k.name AS target_kind,target.key AS target_key,e.discriminator,e.uid::text AS uid
-           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node origin ON origin.id=e.from_node
-           JOIN node target ON target.id=e.to_node JOIN entity k ON k.id=target.entity_id
-           WHERE ek.name='system.assertion-evidence' AND origin.uid=ANY($1::uuid[])`, [assertions.map(assertion => assertion.id)]);
-        for (const link of links.rows) {
-          const cursor = `${link.assertion}:${link.uid}`;
-          if (query.after !== undefined && cursor <= query.after) continue;
-          const attachment = JSON.parse(link.discriminator) as { locator: Record<string, unknown>; relation: string };
-          candidates.push({ kind: kind.name, key: sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator }, assertion: assertions.find(assertion => assertion.id === link.assertion)!, target: link.target, targetKind: link.target_kind, targetKey: link.target_key, ...attachment, cursor });
+    const declarations = {
+      vertex: new Map(contract.vertex.map(kind => [kind.name, new Set(['$exists', ...kind.fields.map(field => field.name).filter(field => !kind.key.includes(field))])])),
+      edge: new Map(contract.edge.map(kind => [kind.name, new Set(['$exists', ...kind.fields.map(field => field.name)])])),
+    };
+    const candidates: { link: CurrentEvidenceLink; key: Record<string, unknown>; assertion: StoredAssertion }[] = [];
+    const batchSize = limit + 1;
+    let after = query.after ? await evidencePosition(tx, query.after) : undefined;
+    // A page counts current attachments, including sound ones, and skips historical links.
+    while (candidates.length <= limit) {
+      const links = await currentEvidenceLinks(tx, after, batchSize, now);
+      const requested = new Map<string, { sort: CurrentEvidenceLink['sort']; kind: string; fields: Set<string>; subjectIds: Set<number> }>();
+      for (const link of links) {
+        if (!declarations[link.sort].get(link.kind)?.has(link.property)) continue;
+        const requestKey = `${link.sort}:${link.kind}`;
+        let request = requested.get(requestKey);
+        if (request === undefined) {
+          request = { sort: link.sort, kind: link.kind, fields: new Set(), subjectIds: new Set() };
+          requested.set(requestKey, request);
+        }
+        request.fields.add(link.property);
+        request.subjectIds.add(link.subject_id);
+      }
+      const requests = [...requested.values()].map(request => ({ ...request, fields: [...request.fields], subjectIds: [...request.subjectIds] }));
+      const batches = requests.length === 0 ? [] : await readKindsAssertions(tx, requests, { contract, ...selector });
+      const active = new Map<string, { key: Record<string, unknown>; assertion: StoredAssertion }>();
+      for (const [index, records] of batches.entries()) for (const record of records) {
+        const key = requests[index]!.sort === 'vertex' ? record.key : { from: record.from, to: record.to, discriminator: record.discriminator };
+        for (const assertion of record.assertions) {
+          if (assertion.active && record.activeSources.includes(assertion.source)) active.set(assertion.id, { key, assertion });
         }
       }
+      for (const link of links) {
+        const entry = active.get(link.assertion_uid);
+        if (entry === undefined) continue;
+        candidates.push({ link, ...entry });
+        if (candidates.length > limit) break;
+      }
+      if (links.length < batchSize) break;
+      after = links.at(-1);
     }
-    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
-    const page = candidates.slice(0, limit);
-    const states = await readEvidenceStates(tx, withAssertionContract(contract), page.map(candidate => ({ targetUid: candidate.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
+    if (candidates.length === 0) return { rows: [] };
+    const manifest = query.manifest ?? await readPublishedManifest(tx);
+    const support = evidenceSupportRoles(manifest?.semanticBindings);
+    const page = candidates.slice(0, limit).map(candidate => ({
+      ...candidate,
+      ...JSON.parse(candidate.link.discriminator) as { locator: Record<string, unknown>; relation: string },
+    }));
+    const states = await readEvidenceStates(tx, withAssertionContract(contract), page.map(candidate => ({ targetUid: candidate.link.target, locator: candidate.locator, assertion: candidate.assertion })), selector, support);
     const rows: StaleEvidence[] = [];
     for (const [index, candidate] of page.entries()) {
       const state = states[index]!;
-      const missingSupport = candidate.targetKind === support?.kind && state.currentApplicability === 'unknown';
+      const { link } = candidate;
+      const missingSupport = link.target_kind === support?.kind && state.currentApplicability === 'unknown';
       const applicability = state.currentApplicability === 'stale' ? 'stale' : state.availability === 'unavailable' || missingSupport ? 'unavailable' : undefined;
       if (applicability === undefined) continue;
-      rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
-        evidence: { target: { kind: candidate.targetKind, uid: candidate.target, key: candidate.targetKey }, locator: candidate.locator, relation: candidate.relation },
+      rows.push({ kind: link.kind, key: candidate.key, opinion: candidate.assertion.id, producer: candidate.assertion.source,
+        evidence: { target: { kind: link.target_kind, uid: link.target, key: link.target_key }, locator: candidate.locator, relation: candidate.relation },
         reason: applicability === 'stale' ? 'the immutable evidence no longer supports the current source' : state.issues.join('; ') || 'current evidence support is unavailable', applicability, state });
     }
-    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.cursor } : {}) };
+    return { rows, ...(candidates.length > limit ? { next: page.at(-1)!.link.cursor } : {}) };
   }));
 }

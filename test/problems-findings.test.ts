@@ -80,6 +80,7 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       // Retirement leaves the generic findings and their stable dismissals usable, not a failed Markdown read.
       expect(listing.notes.some((note) => note.message.includes('Markdown questions are retired'))).toBe(true);
       expect(listing.notes.some((note) => note.message.includes('documents section could not be judged'))).toBe(false);
+      expect(listing.notes.some((note) => note.message.includes('the evidence applicability check could not be read'))).toBe(false);
       const dismissed = await read(['probe.finding'], new Set([shown[0]!.id]));
       expect(dismissed.dismissed).toBe(1);
       expect(dismissed.open).toBe(1);
