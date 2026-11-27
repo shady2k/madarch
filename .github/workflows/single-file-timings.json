@@ -162,6 +162,7 @@
     "test/graph-journal-replay.test.ts": 11400,
     "test/graph-mentions-perf.test.ts": 2151,
     "test/graph-mentions.test.ts": 2153,
+    "test/graph-merge-cardinality.test.ts": 17391,
     "test/graph-merges.test.ts": 24788,
     "test/graph-one-schema.test.ts": 12200,
     "test/graph-orchestration.test.ts": 4469,
