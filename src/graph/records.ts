@@ -35,6 +35,12 @@ export interface AssertionRecordSelector {
    * own to read what it wrote (madarch-64o5.176).
    */
   readonly currentStatement?: boolean;
+  /**
+   * Read the rows a current-value answer is made of instead of every history row: the selected assertion of each
+   * stream and the ones that still stand. Only a caller that reads `selected`/`active`/`values`/`selectedAssertions`
+   * /`activeSources` may ask for it; a reader of opinions or evidence stays on the default history read.
+   */
+  readonly currentValues?: boolean;
 }
 
 /** A batch reads identities once, then applies item 25 entirely in SQL. */

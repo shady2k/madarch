@@ -20,6 +20,14 @@ export interface AssertionRow {
 
 export interface AssertionSqlSelector {
   readonly diagnostics?: boolean;
+  /**
+   * Read only the rows a current-value answer is made of: the selected row of each stream and the rows that
+   * still stand (`active`). Left out, every history row is returned with its flags, which is what a reader of
+   * opinions, evidence and disputes needs (0039 item 25).
+   */
+  readonly currentValues?: boolean;
+  /** The narrowed rows carry the unit filter themselves, so the selection reads one flag instead of a subplan. */
+  readonly rawUnitFlag?: boolean;
   readonly unitUids?: readonly string[];
   readonly sourceUids?: readonly string[];
   readonly currentStatement?: boolean;
@@ -57,7 +65,7 @@ export function assertionSelectionSql(raw: string, selector: AssertionSqlSelecto
     FROM context c JOIN context_path p ON c.id=p.parent
   ), raw AS MATERIALIZED (${raw}), eligible AS (
     SELECT r AS raw_row,${selector.projectMergedSubjects ? 'r.original_subject_id' : 'r.subject_id'} AS stream_subject_id,p.layer,
-      coalesce(p.id IS NOT NULL AND ${selector.unitUids === undefined ? 'TRUE' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=(SELECT id FROM node WHERE uid=r.id::uuid) AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(${array(selector.unitUids,'uuid')}))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(${array(selector.sourceUids,'text')})`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences},false) AS eligible
+      coalesce(p.id IS NOT NULL AND ${selector.unitUids === undefined ? 'TRUE' : selector.rawUnitFlag === true ? 'r.unit_ok' : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=r.assertion_id AND unit_kind.name='system.assertion-unit' AND unit_node.uid=ANY(${array(selector.unitUids,'uuid')}))`} AND ${selector.sourceUids === undefined ? 'TRUE' : `r.source=ANY(${array(selector.sourceUids,'text')})`} AND r.recorded_at<=${recorded} AND (p.cutoff IS NULL OR r.recorded_sequence::bigint<=p.cutoff) AND ${fences},false) AS eligible
     FROM raw r LEFT JOIN context_path p ON p.id=r.context_id
   ), layers AS (
     SELECT eligible.*,min(layer) FILTER (WHERE eligible) OVER (
@@ -137,14 +145,21 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
     const result: StoredAssertion[][] = requests.map(() => []);
     const parameters: unknown[] = [];
     const param = (value: unknown): string => { parameters.push(value); return `$${parameters.length}`; };
+    const quote = (value: string): string => "'" + value.replaceAll("'", "''") + "'";
     const statements: string[] = [];
+    // Values, lineage and repository targets are attached after selection: a row that is not chosen costs none.
+    const valueBranches: string[] = [];
+    const repositoryStatements: string[] = [];
+    let unitParameter: string | undefined;
+    /** One unit flag per narrowed row, counted by the statement that narrows it (0039 item 25). */
+    const unitFlag = (): string => selector?.unitUids === undefined ? 'TRUE'
+      : `EXISTS(SELECT 1 FROM edge unit_edge JOIN entity unit_kind ON unit_kind.id=unit_edge.entity_id AND unit_kind.name='system.assertion-unit' JOIN node unit_node ON unit_node.id=unit_edge.to_node WHERE unit_edge.from_node=a.assertion_id AND unit_node.uid=ANY(${unitParameter ??= `${param(selector.unitUids)}::uuid[]`}))`;
     for (const [requestIndex, { sort, kind, properties, subjectIds, repositoryKinds = [], unprojectedProperties = [] }] of requests.entries()) {
       if (properties.length === 0 || subjectIds?.length === 0) continue;
-    const values=properties.map(property=>{
-      const table=assertionValueTableName(kind,sort,property);
-      const literal="'"+property.replaceAll("'","''")+"'";
-      return `SELECT assertion_id,${literal}::text AS property,CASE WHEN pg_typeof(value)::text='bigint' THEN to_jsonb(value::text) ELSE to_jsonb(value) END AS value,pg_typeof(value)::text AS value_type FROM "${table}" WHERE a.property=${literal} AND assertion_id=a.assertion_id`;
-    }).join(' UNION ALL ');
+      for (const property of properties) {
+        const table = assertionValueTableName(kind, sort, property);
+        valueBranches.push(`SELECT CASE WHEN pg_typeof(value)::text='bigint' THEN to_jsonb(value::text) ELSE to_jsonb(value) END AS value,pg_typeof(value)::text AS value_type FROM "${table}" WHERE assertion_id=batches.assertion_id AND batches.property=${quote(property)} AND batches.request_index=${requestIndex}`);
+      }
       const subjectJoin = sort === 'vertex'
         ? `JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id
            JOIN edge subject_edge ON subject_edge.id=attachment.subject_edge_id
@@ -159,49 +174,38 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const projected = sort === 'vertex' && selector?.projectMergedSubjects;
       const mapped = projected
         ? `CASE WHEN a.property=ANY(${param(unprojectedProperties)}::text[]) THEN subject.id ELSE graph_assertion_target(subject.id,a.assertion_id,${param(selector.contexts?.[0] ?? 1)},${selector.validAt === undefined ? currentInstant : param(selector.validAt)+'::timestamptz'},${selector.recordedAt === undefined ? currentInstant : param(selector.recordedAt)+'::timestamptz'}) END` : 'subject.id';
-      const repositoryStatements = repositoryKinds.map(edgeKind => {
-        const literal = "'" + edgeKind.replaceAll("'", "''") + "'";
-        return `SELECT 0 AS request_index,e.id AS subject_id,e.id AS original_subject_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
+      // A subject's repository targets depend on the subject alone, so the batch answers them once per subject.
+      for (const edgeKind of repositoryKinds) {
+        const literal = quote(edgeKind);
+        repositoryStatements.push(`SELECT ${requestIndex}::integer AS request_index,e.id AS subject_id,e.id AS original_subject_id,e.from_node AS original_subject_node,a.assertion_id,an.uid::text AS id,a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,v.value,
           (SELECT lineage.to_node::text FROM edge lineage JOIN entity lk ON lk.id=lineage.entity_id WHERE lineage.from_node=a.assertion_id AND lk.name='system.assertion-source') AS source,
           target.uid::text AS target_uid,target.key AS target_key
           FROM edge e JOIN entity ek ON ek.id=e.entity_id JOIN node target ON target.id=e.to_node JOIN entity tk ON tk.id=target.entity_id
           JOIN assertion_edge_subject attachment ON attachment.edge_id=e.id JOIN assertion a ON a.assertion_id=attachment.assertion_id
           JOIN node an ON an.id=a.assertion_id LEFT JOIN "${assertionValueTableName(edgeKind, 'edge', '$exists')}" v ON v.assertion_id=a.assertion_id
-          WHERE e.from_node=subject.id AND ek.name=${literal} AND tk.name='code.repository' AND a.property='$exists'`;
-      });
-      const repositories = repositoryStatements.length === 0 ? "'[]'::jsonb" : `(SELECT coalesce(jsonb_agg(jsonb_build_object('uid',r.target_uid,'key',r.target_key) ORDER BY r.subject_id),'[]'::jsonb) FROM (${assertionSelectionSql(repositoryStatements.join(' UNION ALL '), selector, param)}) r WHERE r.selected AND r.value=TRUE)`;
+          WHERE e.from_node IN (SELECT original_subject_id FROM batches) AND ek.name=${literal} AND tk.name='code.repository' AND a.property='$exists'`);
+      }
       const kindParameter = param(kind);
       const propertiesParameter = param(properties);
       const subjectsParameter = subjectIds === undefined ? undefined : param(subjectIds);
       const branches = projected ? [{ subject: 'subject.id', guard: `NOT ${mergeExists}` }, { subject: mapped, guard: mergeExists }] : [{ subject: mapped, guard: 'TRUE' }];
       for (const { subject, guard } of branches) {
         const indexedSubjects = sort === 'vertex' && subject === 'subject.id' && subjectIds !== undefined;
-        // Keep a subject lookup from becoming a scan of every assertion of the kind.
+        // Keep a subject lookup from becoming a scan of every assertion of the kind: the row is followed from
+        // its subject's assertion attachment, never pulled up into a scan keyed by the kind (madarch-64o5.176).
         const assertionFrom = indexedSubjects
           ? `node subject JOIN entity subject_kind ON subject_kind.id=subject.entity_id
              CROSS JOIN LATERAL (SELECT e.id FROM edge e WHERE e.to_node=subject.id AND e.entity_id=(SELECT id FROM entity WHERE name='system.assertion-subject') OFFSET 0) subject_edge
              CROSS JOIN LATERAL (SELECT s.assertion_id FROM assertion_vertex_subject s WHERE s.subject_edge_id=subject_edge.id OFFSET 0) attachment
-             JOIN assertion a ON a.assertion_id=attachment.assertion_id`
+             CROSS JOIN LATERAL (SELECT * FROM assertion a WHERE a.assertion_id=attachment.assertion_id OFFSET 0) a`
           : `assertion a ${subjectJoin}`;
         statements.push(`SELECT ${requestIndex}::integer AS request_index, array_position(${propertiesParameter}::text[],assertion_rows.property) AS property_rank, assertion_rows.* FROM (
- SELECT assertion_node.uid::text AS id, subject.id AS original_subject_id, subject.uid::text AS original_subject_uid, ${subject} AS subject_id, ${subject === 'subject.id' ? 'subject.uid::text' : `(SELECT uid::text FROM node WHERE id=${subject})`} AS subject_uid,
+ SELECT a.assertion_id AS assertion_id, assertion_node.uid::text AS id, subject.id AS original_subject_id, subject.uid::text AS original_subject_uid, ${subject} AS subject_id, ${subject === 'subject.id' ? 'subject.uid::text' : `(SELECT uid::text FROM node WHERE id=${subject})`} AS subject_uid,
         ${sort === 'edge' ? 'edge_from.uid::text AS edge_from, edge_to.uid::text AS edge_to' : 'NULL::text AS edge_from, NULL::text AS edge_to'},
         a.property,a.context_id,a.language,a.operation,a.valid_from,a.valid_to,a.recorded_at,a.recorded_sequence::text,
-        ${repositories} AS repository_targets,value_row.value,value_row.value_type,
-        lineage.source,lineage.author,lineage.unit,lineage.operation_uid,lineage.evidence,lineage.evidence_attachments
+        ${unitFlag()} AS unit_ok,
+        (SELECT source_node.uid::text FROM edge source_edge JOIN entity source_kind ON source_kind.id=source_edge.entity_id JOIN node source_node ON source_node.id=source_edge.to_node WHERE source_edge.from_node=a.assertion_id AND source_kind.name='system.assertion-source') AS source
         FROM ${assertionFrom} JOIN node assertion_node ON assertion_node.id=a.assertion_id
-        LEFT JOIN LATERAL (${values} OFFSET 0) value_row ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-source')) AS scalar(value)) AS source,
-                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-author')) AS scalar(value)) AS author,
-                 (SELECT value FROM unnest(array_agg(target.uid::text ORDER BY lineage.id) FILTER (WHERE k.name='system.assertion-unit')) AS scalar(value) LIMIT 1) AS unit,
-                 (SELECT value FROM unnest(array_agg(target.uid::text ORDER BY lineage.id) FILTER (WHERE k.name='system.assertion-operation')) AS scalar(value) LIMIT 1) AS operation_uid,
-                 coalesce(array_agg(DISTINCT target.uid::text COLLATE "C" ORDER BY target.uid::text COLLATE "C") FILTER (WHERE k.name='system.assertion-evidence'),ARRAY[]::text[]) AS evidence,
-                 coalesce(jsonb_agg(jsonb_build_object('targetUid',target.uid::text,'locator',lineage.discriminator,'key',target.key) ORDER BY target.uid,lineage.discriminator) FILTER (WHERE k.name='system.assertion-evidence'),'[]'::jsonb) AS evidence_attachments
-          FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node
-          WHERE lineage.from_node=a.assertion_id
-            AND k.name IN ('system.assertion-source','system.assertion-author','system.assertion-unit','system.assertion-operation','system.assertion-evidence')
-        ) lineage ON TRUE
         WHERE ${guard} AND subject_kind.name=${kindParameter} AND a.property=ANY(${propertiesParameter}::text[]) ${subjectsParameter === undefined ? '' : `AND (${subject})=ANY(${subjectsParameter}::bigint[])`}
         ORDER BY array_position(${propertiesParameter}::text[],a.property),a.recorded_sequence) assertion_rows`);
       }
@@ -210,14 +214,41 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       span.setAttributes({ 'graph.assertion.counts': JSON.stringify(result.map(rows => rows.length)), 'graph.existence.counts': JSON.stringify(result.map(() => 0)), 'graph.selected-existence.counts': JSON.stringify(result.map(() => 0)) });
       return result;
     }
+    const diagnostics = selector?.diagnostics ?? process.env['MADARCH_TRACE_SELECTION'] === '1';
+    const narrowed = statements.join(' UNION ALL ');
+    const selection = selector === undefined ? narrowed
+      : assertionSelectionSql(narrowed, { ...selector, rawUnitFlag: true, diagnostics }, param);
+    // One subject's repository targets are one answer, whatever the number of its rows.
+    const repositories = repositoryStatements.length === 0 ? '' : `, repositories AS MATERIALIZED (
+      SELECT r.request_index,r.original_subject_node,coalesce(jsonb_agg(jsonb_build_object('uid',r.target_uid,'key',r.target_key) ORDER BY r.subject_id),'[]'::jsonb) AS targets
+      FROM (${assertionSelectionSql(repositoryStatements.join(' UNION ALL '), { ...(selector ?? {}), rawUnitFlag: false, diagnostics: false }, param)}) r
+      WHERE r.selected AND r.value=TRUE
+      GROUP BY r.request_index,r.original_subject_node)`;
+    const sql = `WITH batches AS MATERIALIZED (${selection})${repositories}
+SELECT batches.*,lineage.author,lineage.unit,lineage.operation_uid,lineage.evidence,lineage.evidence_attachments${valueBranches.length === 0 ? ',NULL::jsonb AS value,NULL::text AS value_type' : ',value_row.value,value_row.value_type'}${repositories === '' ? ",'[]'::jsonb AS repository_targets" : ",coalesce(repositories.targets,'[]'::jsonb) AS repository_targets"}
+  FROM batches
+  LEFT JOIN LATERAL (
+    SELECT (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-author')) AS scalar(value)) AS author,
+           (SELECT value FROM unnest(array_agg(target.uid::text ORDER BY lineage.id) FILTER (WHERE k.name='system.assertion-unit')) AS scalar(value) LIMIT 1) AS unit,
+           (SELECT value FROM unnest(array_agg(target.uid::text ORDER BY lineage.id) FILTER (WHERE k.name='system.assertion-operation')) AS scalar(value) LIMIT 1) AS operation_uid,
+           coalesce(array_agg(DISTINCT target.uid::text COLLATE "C" ORDER BY target.uid::text COLLATE "C") FILTER (WHERE k.name='system.assertion-evidence'),ARRAY[]::text[]) AS evidence,
+           coalesce(jsonb_agg(jsonb_build_object('targetUid',target.uid::text,'locator',lineage.discriminator,'key',target.key) ORDER BY target.uid,lineage.discriminator) FILTER (WHERE k.name='system.assertion-evidence'),'[]'::jsonb) AS evidence_attachments
+    FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node
+    WHERE lineage.from_node=batches.assertion_id
+      AND k.name IN ('system.assertion-author','system.assertion-unit','system.assertion-operation','system.assertion-evidence')
+  ) lineage ON TRUE${valueBranches.length === 0 ? '' : `
+  LEFT JOIN LATERAL (SELECT value,value_type FROM (${valueBranches.join(' UNION ALL ')}) v) value_row ON TRUE`}${repositories === '' ? '' : `
+  LEFT JOIN repositories ON repositories.request_index=batches.request_index AND repositories.original_subject_node=batches.original_subject_id`}${selector?.currentValues === true ? `
+  WHERE batches.active OR batches.selected` : ''}
+  ORDER BY request_index,property_rank,recorded_sequence::bigint`;
     const { rows } = await executor.query<{
       request_index: number; selected?: boolean; active?: boolean; diagnostic_context?: boolean; diagnostic_recorded?: boolean; diagnostic_valid?: boolean; diagnostic_valid_before?: boolean; diagnostic_valid_after?: boolean; diagnostic_eligible?: boolean; diagnostic_stream?: boolean;
-        id: string; original_subject_id: number; original_subject_uid: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
+        id: string; assertion_id: string; unit_ok: boolean; original_subject_id: number; original_subject_uid: string; subject_id: number; subject_uid: string; edge_from: string | null; edge_to: string | null;
         property: string; context_id: number; language: string | null; source: string; author: string;
         unit: string | null; operation_uid: string; evidence: string[]; evidence_attachments: StoredAssertion['evidenceAttachments']; repository_targets: StoredAssertion['repositoryTargets']; value: unknown; value_type:string|null;
         operation: 'assert' | 'retract'; valid_from: string | Date; valid_to: string | Date | null;
         recorded_at: string | Date; recorded_sequence: string;
-    }>(`SELECT * FROM (${selector === undefined ? statements.join(' UNION ALL ') : assertionSelectionSql(statements.join(' UNION ALL '), { ...selector, diagnostics: selector.diagnostics ?? process.env['MADARCH_TRACE_SELECTION'] === '1' }, param)}) batches ORDER BY request_index,property_rank,recorded_sequence::bigint`, parameters);
+    }>(sql, parameters);
     if (selector !== undefined && (selector.diagnostics ?? process.env['MADARCH_TRACE_SELECTION'] === '1')) {
       const count = (predicate: (row: typeof rows[number]) => boolean) => JSON.stringify(requests.map((_, index) => rows.filter(row => row.request_index === index && row.property === '$exists' && predicate(row)).length));
       span.setAttributes({

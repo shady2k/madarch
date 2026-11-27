@@ -233,7 +233,7 @@ async function readKindAssertions(tx:SqlExecutor,sort:'vertex'|'edge',kind:strin
   // The statement reads at its own start: that is after every statement before it in this
   // transaction, so a write this phase made is read without a clock round-trip of its own.
   return await withSpan('graph.orchestration.records', {}, async () =>
-   readSelectedKindAssertions(tx,sort,kind,properties,{currentStatement:true,...(subjectUids===undefined?{}:{subjectUids}),...(subjectIds===undefined?{}:{subjectIds})}));
+   readSelectedKindAssertions(tx,sort,kind,properties,{currentStatement:true,currentValues:true,...(subjectUids===undefined?{}:{subjectUids}),...(subjectIds===undefined?{}:{subjectIds})}));
 }
 const fields: Record<string, readonly string[]> = {
  'system.tracked-read':['query_digest','query','membership','members','seq','at'],

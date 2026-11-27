@@ -62,7 +62,7 @@ async function node(tx:OuterTransaction,uid:string):Promise<string> {
   });
 }
 async function selectedFieldBatch(tx:OuterTransaction,requests:readonly {kind:string;id:string;properties:readonly string[]}[],context:number):Promise<Record<string,unknown>[]> {
-  const batches=await loadAssertionsBatch(tx,requests.map(({kind,id,properties})=>({sort:'vertex' as const,kind,properties,subjectIds:[Number(id)]})),{currentStatement:true,contexts:[context]});
+  const batches=await loadAssertionsBatch(tx,requests.map(({kind,id,properties})=>({sort:'vertex' as const,kind,properties,subjectIds:[Number(id)]})),{currentStatement:true,contexts:[context],currentValues:true});
   return batches.map(rows=>Object.fromEntries(rows.filter(row=>row.selected).map(row=>[row.property,row.value])));
 }
 async function selectedFields(tx:OuterTransaction,kind:string,uid:string,properties:readonly string[],context:number):Promise<Record<string,unknown>> {
