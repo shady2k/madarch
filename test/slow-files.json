@@ -206,6 +206,16 @@
       "exit": "Rewrite test/fill-role-parent.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/fill-run-recovery.test.ts",
+      "seconds": 157.6,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-47vw.7",
+      "defect": "The three cases drive the real queued fill path — one live KnowledgeProduct, the product's fill-runs queue and the fill role — and the public case runs two complete plugin fills (one refused, then a fresh one on the same product). Measured 2026-11-28 on box alx2023-fill (agent-linux-01, 2 vCPU, 4 GiB, image madarch-3, bun 1.4.2): 157 617 ms single file, of which the public refusal is 102.5 s, the spent-job press 13.6 s and the losing press 14.3 s. The cost is the fill's own plugin turns and PostgreSQL work, not this fixture's setup.",
+      "replacement": "The cost is the fill implementation the two cases prove, not their setup: the refused fill's units, the seed plan and the succeeding fill each run the product's disk and git plugins against one small repository. A cheaper seed that still distinguishes a live unit claim is the only candidate; the public refusal and the fresh fill after it must stay on the real role.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/fill-run-recovery.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-slow-matrix coverage; the explicit required invocation in .github/workflows/ci.yml stays until then."
+    },
+    {
       "path": "test/fill-run.test.ts",
       "seconds": 499.0,
       "reason": "red-defect",

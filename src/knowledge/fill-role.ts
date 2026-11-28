@@ -18,7 +18,8 @@ import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
-import { readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
+import { failRequestedFill, readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
+import { failAndSettleRun, type RunCleanupContext } from '../fill/orchestrator.js';
 import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
 import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
@@ -245,10 +246,30 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   }
 }
 
+/** The store's fill state as the run's rows are written through it, with the contract the store's manifest publishes. */
+async function fillDatabaseOf(store: StoreOwner, productFolder: string): Promise<FillStateDatabase> {
+  const manifest = await store.run(tx => readPublishedManifest(tx));
+  return { transaction: store.transaction.bind(store), graphContract: withAssertionContract(manifest === undefined ? await readPinnedGraphContract(productFolder) : withManifestContract(graphContractOf(manifest))) };
+}
+
+/**
+ * Ends a run whose queue attempts are spent: the last attempt leaves it standing for no one, so it releases the units it
+ * left and the chain it held before its end is written, and the api that pressed the fill answers instead of waiting for
+ * an end no process will write (ALX-2024).
+ */
+async function endExhausted(held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, message: string): Promise<void> {
+  const data = job.data;
+  const database = await fillDatabaseOf(held.owner, data.product);
+  const read = readProduct(data.product);
+  const cleanup: RunCleanupContext = { database, product: read.ok ? read.product.name : data.product, clock: Date.now };
+  if (await failRequestedFill(database, data.runId, message)) return;
+  await failAndSettleRun(cleanup, { runId: data.runId, detail: message });
+}
+
 /** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
 async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
-  const metadata=async(store:StoreOwner):Promise<FillStateDatabase>=>{const manifest=await store.run(tx=>readPublishedManifest(tx));return {transaction:store.transaction.bind(store),graphContract:withAssertionContract(manifest===undefined?await readPinnedGraphContract(data.product):withManifestContract(graphContractOf(manifest)))};};
+  const metadata=async(store:StoreOwner):Promise<FillStateDatabase>=>await fillDatabaseOf(store, data.product);
   // A redelivery after the end was published acknowledges that same run, never replaces its result.
   if (await readFillEnd(held.owner, data.runId) !== null) {
     await settleFillRun(held.queue, job, { ok: true });
@@ -271,7 +292,8 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     state.databaseFolders.add(join(held.storeFolder, 'graph'));
     await owner.ready;
   } catch (error) {
-    await settleFillRun(held.queue, job, { ok: false, message: `the store ${held.storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}` });
+    const message = `the store ${held.storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`;
+    if (await settleFillRun(held.queue, job, { ok: false, message }) === 'failed') await endExhausted(held, job, message).catch(() => undefined);
     return;
   }
   let run: Awaited<ReturnType<typeof startKnowledgeFill>> | undefined;
@@ -308,12 +330,21 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     await run.close();
     run = undefined;
     state.running = undefined;
-    await settleFillRun(held.queue, job, { ok: result.ok, ...(result.message === undefined ? {} : { message: result.message }) });
+    // The run's end is the answer the press waits on, so only an attempt that published one acknowledges its job as done:
+    // a job settled done is never handed out again, and a press whose job was acknowledged without an end waits for ever
+    // (ALX-2026 finding 5). An attempt that failed before it built its service publishes no end at all — a run already
+    // `planning` or `running` takes none from `failRequestedFill` — so it leaves its job to the queue's next try, and the
+    // last one ends the run it leaves behind. A job whose retries are spent is the run's last chance: what it leaves
+    // behind ends here.
+    const ended = result.ok || (await readFillEnd(held.owner, data.runId).catch(() => null)) !== null;
+    const outcome = ended ? { ok: true } : { ok: false, ...(result.message === undefined ? {} : { message: result.message }) };
+    if (await settleFillRun(held.queue, job, outcome) === 'failed') await endExhausted(held, job, result.message ?? `the fill of ${data.product} ended without an answer`).catch(() => undefined);
     log(`madarch fill: ${data.product} run ${data.runId} ${result.ok ? 'filled' : `failed: ${result.message ?? ''}`}`);
   } catch (error) {
     await run?.close().catch(() => undefined);
     await owner.close().catch(() => undefined);
-    await settleFillRun(held.queue, job, { ok: false, message: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    if (await settleFillRun(held.queue, job, { ok: false, message }) === 'failed') await endExhausted(held, job, message).catch(() => undefined);
   }
 }
 

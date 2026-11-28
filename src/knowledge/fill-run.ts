@@ -24,16 +24,15 @@ import { fillIsolation } from '../plugin/sandbox-probe.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
-import { failRequestedFill, readProgress, writeFillEnd } from '../graph/fill-orchestration.js';
+import { failRequestedFill, readProgress, writeFillEndIfAbsent } from '../graph/fill-orchestration.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
 import { advanceRun, createRun, readChain, readRun } from '../graph/fill-state.js';
-import { TERMINAL_RUN_STATES } from '../fill/orchestrator.js';
+import { failAndSettleRun, TERMINAL_RUN_STATES, type RunCleanupContext } from '../fill/orchestrator.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
 import { readProduct } from '../product/manifest.js';
-import { raise } from '../model/raise.js';
 
 /** A run that failed before its host began is ended where the run's end lives (`graph/fill-orchestration.ts`). */
 export { failRequestedFill };
@@ -206,18 +205,6 @@ export interface FinishedKnowledgeStore {
 }
 
 /**
- * Ends a run the fill began and then lost: only a run still standing — `created`, `planning`, `running`, `pausing` or
- * `cancelling` — reaches `failed`, with the cause, and a run already terminal keeps the ending it has. The end row is
- * written by the caller that holds the run's own answer; this is the row every reader of a live run reads.
- */
-async function endUnfinishedRun(database: FillStateDatabase, runId: string, message: string): Promise<void> {
-  const run = await readRun(database, runId);
-  if (run === null || (TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return;
-  const failed = await advanceRun(database, { runId, event: { type: 'fail', at: Date.now(), cause: 'process-ended', detail: message } });
-  if (!failed.ok) raise(`fill-run: the run ${runId} could not be ended after its fill failed (${failed.refusal.reason}): ${message}`);
-}
-
-/**
  * Finishes one store after a run that settled: the repositories the graph now holds and what each was filled to, read
  * from the graph — the repository entity, its as-is edge and the counts of its rows. Nothing is written: a pin is not a
  * table of the fill's (stage 3: `knowledge_fill` is gone). The statistics a page plans from are left after it.
@@ -257,17 +244,23 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     await owner.close().catch(() => undefined);
   };
   try {
+    const identity = readProduct(options.productFolder);
+    /** Ending the run this fill lost touches its own rows and its product's chain, and nothing of a service (ALX-2024). */
+    const cleanup: RunCleanupContext = { database, product: identity.ok ? identity.product.name : basename(options.productFolder), clock: Date.now };
     const fillTheStore = async (): Promise<KnowledgeFillResult> => {
       try {
         // A live fill takes precedence over admission of another request. The orchestrator still owns the atomic
         // admission below; this read only avoids asking an already busy product for this request's agent and plan.
-        const identity = readProduct(options.productFolder);
         const chain = identity.ok ? await readChain(owner, identity.product.name) : null;
         if (chain?.state === 'active' && chain.context.activeRunId !== options.runId) {
           const held = chain.context.activeRunId === null ? null : await readRun(owner, chain.context.activeRunId);
           if (held !== null && !(TERMINAL_RUN_STATES as readonly string[]).includes(held.state)) {
+            const message = await refusalWords(owner, options.productFolder, { ok: false, code: 'fill-orchestrator/chain-active', reason: '' });
             recordEnd = false;
-            return { ok: false, state: 'failed', refused: true, message: await refusalWords(owner, options.productFolder, { ok: false, code: 'fill-orchestrator/chain-active', reason: '' }), units: 0 };
+            // The request this fill was asked for ends here: its end is the answer the pressing page waits on, and
+            // without it every later press waits behind a run that never started (ALX-2024).
+            await failRequestedFill(database, options.runId, message);
+            return { ok: false, state: 'failed', refused: true, message, units: 0 };
           }
         }
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
@@ -311,23 +304,37 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         });
         if (!result.ok) {
           const message = await refusalWords(owner, options.productFolder, result);
-          await failRequestedFill(database, options.runId, message);
+          if (!(await failRequestedFill(database, options.runId, message))) {
+            // The run had begun and its plan or its start refused it: it releases its units and its chain, and only the
+            // attempt that moved it writes its end (ALX-2024, ALX-2026 findings 3 and 4). The cause is the one the run
+            // machine accepts from `planning` and `running` — a started attempt that will not carry the run any further —
+            // never `initialization-failed`, which only a run still `created` may take (`src/fill/fsm.ts` line 549).
+            await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
+          }
           recordEnd = false;
           return { ok: false, state: 'failed', refused: true, message, units: 0 };
         }
-        if (!result.settled || result.state !== 'succeeded') {
-          // The run's own durable events name why a unit did not publish: the stage's error, with the
-          // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
-          const named: string[] = [];
-          for (const event of await readProgress(owner, result.runId)) {
-            if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) named.push(`${event.unitId}: ${event.summary}`);
-          }
-          const failed = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
-          const why = named.length > 0 ? named.join('; ') : failed.map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state})`).join(', ');
+        // The run's own durable events name why a unit did not publish: the stage's error, with the
+        // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
+        const named: string[] = [];
+        for (const event of await readProgress(owner, result.runId)) {
+          if (event.unitId !== '' && (event.kind === 'unit-failed' || event.kind === 'unit-blocked')) named.push(`${event.unitId}: ${event.summary}`);
+        }
+        const failedUnits = result.units.filter((unit) => unit.state !== 'published' && unit.state !== 'superseded');
+        const why = named.length > 0 ? named.join('; ') : failedUnits.map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state})`).join(', ');
+        if (!result.settled) {
+          const message = `the fill ended without settling${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}${why === '' ? '' : `; ${why}`}`;
+          // Its attempts are spent: nothing will move the run again, so it releases its units and its chain and records
+          // its end here, or the press that asked for it waits for an end no process writes (ALX-2024).
+          await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
+          recordEnd = false;
+          return { ok: false, state: result.state, message, units: result.units.length };
+        }
+        if (result.state !== 'succeeded') {
           return {
             ok: false,
             state: result.state,
-            message: `the fill ended ${result.settled ? result.state : 'without settling'}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}${why === '' ? '' : `; ${why}`}`,
+            message: `the fill ended ${result.state}${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}${why === '' ? '' : `; ${why}`}`,
             units: result.units.length,
           };
         }
@@ -355,8 +362,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           // A run the fill began and then lost ends here, in the process that ran it: a stage's plan that refuses, a
           // stage's own error. The row left standing `planning` or `running` answers every reader `queued` or `running`
           // for ever, and the press's page waits for an end no killed process writes (measured 2026-11-26: the
-          // clean-install walk polled 180 000 ms for a run whose plan had refused after 2 s).
-          await endUnfinishedRun(database, options.runId, message);
+          // clean-install walk polled 180 000 ms for a run whose plan had refused after 2 s). The run releases the
+          // units it left and the chain it held before its end is written (ALX-2024).
+          await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
         }
         return { ok: false, state: 'failed', message, units: 0 };
       }
@@ -373,7 +381,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     const done = (async (): Promise<KnowledgeFillResult> => {
       try {
         const answer = await fillTheStore();
-        if (recordEnd) await writeFillEnd(database, {
+        if (recordEnd) await writeFillEndIfAbsent(database, {
           runId: options.runId, state: answer.state,
           ...(answer.message === undefined ? {} : { message: answer.message }),
           ...(answer.unread === undefined ? {} : { unread: answer.unread }),

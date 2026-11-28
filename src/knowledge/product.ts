@@ -24,7 +24,7 @@ import { setProductOperationRunState } from '../graph/operation-host.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
 import { logsAnswer, type LogPage, type LogQuery } from './logs.js';
-import { cancelRun } from '../fill/orchestrator.js';
+import { cancelRun, failAndSettleRun, type RunCleanupContext } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
@@ -49,12 +49,12 @@ import { catalogueFileTextRole } from './file-text-kind.js';
 import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
-import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
+import { enqueueFillRun, FILL_RUN_QUEUE, openFillRunQueue } from '../fill/run-jobs.js';
 import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_DEADLINE_MS, FILE_TEXT_QUEUE } from './file-texts.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { FINAL_RUN_STATES, runPhaseOf } from '../fill/fsm.js';
-import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../graph/fill-orchestration.js';
+import { askRunControl, readFillEnd, readProgress, readRunConfiguration, writeFillEndIfAbsent } from '../graph/fill-orchestration.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readProductFillState, readRuns, hasSuccessfulFill, readRun, readLiveRun, readStoreStamp } from '../graph/fill-state.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -1293,16 +1293,48 @@ export class KnowledgeProduct {
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
-      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
+      const job = { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) };
+      const queued = await enqueueFillRun(this.fillQueue, job);
+      const cleanup: RunCleanupContext = { database: await this.fillDatabase(owner), product: product.name, clock: Date.now };
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
       // answered — the reason it did not finish, the repositories it could not read — is written there too.
+      let polls = 0;
       for (;;) {
         if (this.closed) return;
         end = await readFillEnd(owner, runId).catch(() => null);
         if (end !== null) {
           state = end.state;
           break;
+        }
+        // Every fifth second the queue is asked whether the job it was given still has an attempt left: a job whose
+        // retries are spent leaves the run standing for no one, and the press ends it rather than waiting for ever
+        // (ALX-2024).
+        if (queued.id !== null && ++polls % 20 === 0) {
+          await this.fillQueue.recover(FILL_RUN_QUEUE).catch(() => undefined);
+          const held = await this.fillQueue.job(FILL_RUN_QUEUE, queued.id).catch(() => null);
+          if (held !== null && (held.state === 'failed' || held.state === 'cancelled')) {
+            end = await readFillEnd(owner, runId).catch(() => null);
+            if (end !== null) {
+              state = end.state;
+              break;
+            }
+            const message = 'the process that ran it ended';
+            // The run's own answer is its end: one whose transition another caller won — its own completion committing
+            // `succeeded` while it still finishes the store — keeps what it committed, so this press writes nothing and
+            // keeps waiting for that end. Only the caller that moved the run publishes the fallback failure
+            // (ALX-2024, ALX-2026 finding 4).
+            const moved = await failRequestedFill(cleanup.database, runId, message)
+              || (await failAndSettleRun(cleanup, { runId, detail: message })).transitioned;
+            if (!moved) {
+              await Bun.sleep(250);
+              continue;
+            }
+            await writeFillEndIfAbsent(cleanup.database, { runId, state: 'failed', message });
+            end = await readFillEnd(owner, runId).catch(() => null);
+            state = end?.state ?? 'failed';
+            break;
+          }
         }
         await Bun.sleep(250);
       }

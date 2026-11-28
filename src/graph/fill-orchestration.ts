@@ -362,6 +362,19 @@ export async function writeFillEnd(database:OrchestratorDatabase,end:FillEnd):Pr
  for(const row of end.unread??[])await child(tx,'system.unread','system.unread-run','system.run',uid,{repository:row.repository,path:row.path,reason:row.reason});
 });}
 /**
+ * Writes a run's end only when it holds none: the first end a run writes is its answer, and a caller that finishes a run
+ * after another did — recovery racing the run's own completion — never replaces it (ALX-2024, ALX-2026 finding 4). The
+ * read of `end_recorded` and the write share one write-locked transaction, so of two callers exactly one wins.
+ */
+export async function writeFillEndIfAbsent(database:OrchestratorDatabase,end:FillEnd):Promise<boolean>{return await transaction(database,'write',async tx=>{
+ await locked(tx);const uid=await requiredRun(tx,end.runId);const held=await read(tx,'system.run',uid);if(held?.values.end_recorded)return false;
+ await write(tx,'system.run',uid,{end_recorded:true,end_state:end.state,end_message:end.message??''});
+ const previous=await related(tx,'system.unread','system.unread-run',uid),{contract,binding}=await orchestrationBinding(tx);
+ await publishGraphDrafts(tx,contract,{vertices:[],removals:previous.map(row=>({kind:'system.unread',uid:row.uid,key:{},producer:binding.sourceUid}))});
+ for(const row of end.unread??[])await child(tx,'system.unread','system.unread-run','system.run',uid,{repository:row.repository,path:row.path,reason:row.reason});
+ return true;
+});}
+/**
  * Settles a run that failed before its host began (ALX-464): only a run still `created` — never an existing active or
  * terminal one — reaches `failed`, and its cause stands in the run's end, which a press's page and `madarch trace` read.
  */

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { beginRunHeartbeat, stopHeartbeat, type RunClaim } from '../src/fill/orchestrator.js';
-import { askFillRun, claimFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
+import { claimFillRun, enqueueFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { prepareQueueSchema } from '../src/adapters/schemas/queue.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -77,7 +77,7 @@ test('the run heartbeats through the queue client that owns its claim, not the u
   const units = await createPgBossQueue({ owner, supervise: false });
   const orchestrator = { queue: units, heartbeat: { runId: null, timer: undefined, ownerToken: null } } as unknown as Parameters<typeof beginRunHeartbeat>[0];
   try {
-    await askFillRun(runs, { product: 'shop', store: 'store', runId: 'claimed-run' });
+    await enqueueFillRun(runs, { product: 'shop', store: 'store', runId: 'claimed-run' });
     const job = await claimFillRun(runs);
     expect(job).not.toBeNull();
     const heartbeat = async () => (await owner.run(tx => tx.query<{ heartbeat_on: Date }>('SELECT heartbeat_on FROM pgboss.job WHERE id = $1', [job!.id]))).rows[0]!.heartbeat_on.getTime();
