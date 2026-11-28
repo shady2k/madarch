@@ -25,6 +25,20 @@
 <p>A fill at 9 of 12 units. Its agent reports no token usage of its own, so the meter charges the streamed text.</p>
 <div class="pair">
   <section class="card">
+    <h2>Before, while the first turn is still running</h2>
+    <p class="title">Being filled — 1 of 12 units</p>
+    <p class="line muted">Elapsed: 2 min</p>
+    <p class="line bad">Tokens: 0 input · 0 output · 0 cache write · 0 cache read · 0 total</p>
+    <p class="line muted">Facts written: 0</p>
+  </section>
+  <section class="card">
+    <h2>After, while the first turn is still running</h2>
+    <p class="title">Being filled — 1 of 12 units</p>
+    <p class="line muted">Elapsed: 2 min</p>
+    <p class="line">Tokens: 8 640 input · 0 output · 0 cache write · 0 cache read · 8 640 total</p>
+    <p class="line muted">Facts written: 0</p>
+  </section>
+  <section class="card">
     <h2>Before</h2>
     <p class="title">Being filled — 9 of 12 units</p>
     <p class="line muted">Elapsed: 12 min</p>
@@ -39,8 +53,10 @@
     <p class="line muted">Facts written: 41</p>
   </section>
 </div>
-<p class="note">The numbers are the turns that ended, as the meter charged them: a turn that reported no usage states
-the estimate of its streamed text, so the page, the unit's row and the run's token cap keep one figure. The example's
+<p class="note">The numbers are what the meter charged, as it charged it: a turn that has not answered states the
+estimate of its streamed text so far, and a turn that answered states its own report — reconciled once, with its cache
+categories kept — so the page, the unit's row, the kind's totals and the run's token cap keep one figure, over both
+attempts of a retried unit too. The example's
 figures are illustrative; the check that reads the page is <code>test/live-agent-usage.test.ts</code>.</p>
 </body>
 </html>

@@ -7,11 +7,11 @@
   "files": [
     {
       "path": "test/live-agent-usage.test.ts",
-      "seconds": 97.8,
+      "seconds": 83.08,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-rcyu",
-      "defect": "The case drives a whole agent fill through the plugin's own turns and the ACP boundary, so it pays the same per-unit agent cost as test/agent-fill-e2e.test.ts: two agent units, each starting the adapter and its MCP server, then a held turn. Measured single-file on box alx1936-meter (agent-linux-02, 2 vCPU, 4 GiB, image madarch-3), one file at a time: 80.8 s to 88.2 s of test run and 97.8 s the whole file, which is this entry's committed timing in .github/workflows/single-file-timings.json. The one-time cost is the fill, not the fixture's setup: its plan assertion alone is 7 s.",
+      "defect": "The case drives a whole agent fill through the plugin's own turns and the ACP boundary, so it pays the same per-unit agent cost as test/agent-fill-e2e.test.ts: two agent units, each starting the adapter and its MCP server, then a held turn. The file now holds two cases, both reading the product's own run answer over HTTP: one reads the estimate a first turn charged while it stands at its barrier before it answers, and one reads the spend an adapter reported while a second held unit keeps the fill open. Measured single-file on box alx1936-meter-fix (agent-linux-01, 2 vCPU, 4 GiB, image madarch-3), one file at a time: 40.44 s and 38.26 s of case time and 83.08 s the whole file, which is this entry's committed timing in .github/workflows/single-file-timings.json. The one-time cost is the fill, not the fixture's setup: its plan assertion alone is 7 s.",
       "replacement": "The page read itself is covered by the fast case in test/agent-meter.test.ts (a turn that reports no usage states its estimate in its span, about 90 ms), so this file can drop to the meter, a recorded ACP transcript and one trace read once the agent fill's per-unit cost falls under the speed-up stream madarch-64o5.176; until then the file keeps the end-to-end question: the product's own run read states the charged tokens while the fill is active.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/live-agent-usage.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage."
     },

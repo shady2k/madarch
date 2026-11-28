@@ -1,7 +1,7 @@
 # The run page states the tokens a live fill turn spent
 
 Change: madarch-rcyu
-Base: 898838c8755a5341923ecf16e24d022bde4e662f
+Base: b1b9ceb27238dd19806e74929bff643878966f99
 Tasks: madarch-rcyu
 Kind: no-behavior
 
@@ -22,14 +22,31 @@ The span now states what the turn added to the row: the answer's increment, or,
 for a turn that reported none, the estimate the stream charged, which the row
 keeps. The page, the row and the cap then keep one figure, before the fill ends.
 
+The correction pass after the independent review (ALX-2032) closed the two gaps
+the first version left. A first turn that is still open states nothing until it
+answers, so the page read 0 for the whole of a long first turn: every charge the
+stream makes is now a provisional `agent.usage` span of its turn
+(`agent.estimate: true`, `agent.turn` naming it, no turn counted), and the
+turn's own span answers that turn, so the reader counts the estimate once and
+reconciles it by the report. A retried unit spends in two attempts, and each
+attempt wrote its own row: the row kept the second attempt's spend while the
+trace and the run's cap held both. A meter now adopts the rows its unit already
+has in the store (`readAgentUsageRows`), so one row states the unit's whole
+spend across attempts.
+
 ## Out of scope
 The ACP session's own token accounting (`src/fill/acp.ts` is unchanged): an
 agent that reports none still reads "not reported" as the session's figure, and
 nothing is invented there. The kind's page, which reads the store's `agent_usage`
-rows, was already right. A figure inside a turn that has not ended yet: the
-estimate is charged as the text arrives, but the trace states it when the turn
-ends, and this change does not write spans per streamed chunk. The paths a live
-agent sees under `code.module` and its output are ALX-1937's.
+rows, was already right. The paths a live agent sees under `code.module` and its
+output are ALX-1937's. A session reused across turns: the production bridge opens
+one ACP session per request (`src/plugin/agent.ts`, `src/fill/acp.ts`), so a
+cumulative report that spans a turn charged by estimate and a later turn is not
+this path — the meter's difference would subtract only the later turn's estimate
+and state the earlier turn's report as new spend (review ALX-2032's mixed
+observation). No adapter madarch starts reports that way today; a session
+reused by another adapter would need the meter to keep per-turn reports, which
+this change does not add.
 
 ## Rationale
 A counter that reads 0 while the run spends is worse than a counter that reads
@@ -48,8 +65,8 @@ charged.
 Kind: screen
 Place: The fill run page of a live fill, its run card's "Tokens:" line
 Mockup: docs/prototypes/madarch-rcyu/tokens.html
-1. Open a fill's run page while its agent works, once one of its turns has ended.
-2. The Tokens line names input, output, cache write, cache read and total for the turns that ended, instead of reading 0 for an agent that reports no usage of its own.
+1. Open a fill's run page while its agent works — before its first turn answers too.
+2. The Tokens line names input, output, cache write, cache read and total for the turns that ended and for the turn in flight, instead of reading 0 for an agent that reports no usage of its own.
 
 ## Blocking questions
 None.
@@ -61,10 +78,30 @@ the stream charged and the row kept — instead of the answer's zeros; when the
 answer reported usage, the estimate was already taken back out of the row and
 the answer's increment is the span, as before. Both cases keep the invariant the
 bounded reader relies on: the spans of a run add up to the rows, so
-`agentUsageOf`'s totals are the meter's spend and the cap's. The check that
-reads the page is `test/live-agent-usage.test.ts` (a fixture ACP peer that
-streams a known text, reports nothing and holds its next turn until the case
-releases it); the focused case is in `test/agent-meter.test.ts`.
+`agentUsageOf`'s totals are the meter's spend and the cap's.
+
+`AgentMeter.meterSessionUpdate` writes every charge it makes as a provisional
+span of the turn: one `agent.usage` span per charge, `agent.estimate: true`, the
+turn named by `agent.turn`, `agent.turns: 0`, and no bound attribute (a bound is
+named where the turn ends). `agentUsageOf` groups the spans of a line by that
+turn and counts it once: the answering span when the turn answered — the
+estimate that stood for it stops standing, which is what the row and the cap did
+— and the provisional spans only while it has not. A turn that has not answered
+spends, so it states tokens and counts no turn yet. The trace's cost is one span
+per streamed update, the same cadence as the meter's charge (`src/obs/trace.ts`
+flushes the file as it grows, so the api role reads it while the fill runs).
+
+`pluginUnitMeter` reads the rows the unit already holds (`readAgentUsageRows`)
+and hands them to the meter as `adopted`: the meter's row is the unit's whole
+spend, its save replaces that row (never adds), and its first span states only
+what this attempt added, so the trace, the row, the kind's totals and the run's
+cap keep one figure over both attempts. The checks that read the page over HTTP
+are the two cases of `test/live-agent-usage.test.ts` (a fixture ACP peer that
+streams a known text, writes its readiness file only once it stands at the
+barrier, and waits for that unit's release file, which the case writes after its
+assertion and in its cleanup); the rendered Tokens line is covered by
+`wiki/app/src/components/command-pages.test.tsx`; the focused cases are in
+`test/agent-meter.test.ts`.
 
 ## Acceptance evidence
 Pending the stage acceptance of ALX-1936: the run above is the one-time walk,
@@ -72,5 +109,7 @@ and its record is the acceptance record of that stage, not this change.
 
 ## DONE WHEN
 A fill whose adapter reports no token usage states, on its run page and in the
-product's own run read, the tokens the meter charged for every turn that ended,
-and that figure equals the unit's row and the run's cap.
+product's own run read, the tokens the meter charged for the turn in flight and
+for every turn that ended, an adapter's own report stands once in that figure
+with its cache categories, and the figure equals the unit's row, the kind's
+totals and the run's cap over every attempt of a retried unit.
