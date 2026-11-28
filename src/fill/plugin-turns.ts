@@ -13,7 +13,7 @@
 import { declareProducerScope } from '../graph/applicability.js';
 import { fillProductProfile } from '../graph/product-profile.js';
 import { storedApplicability, assertApplicability, assertProducedApplicability, cascadeApplicability } from '../graph/applicability.js';
-import type { AgentUsageRecord } from '../adapters/agent-usage.js';
+import { readAgentUsageRows, type AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -398,10 +398,20 @@ export function trackedPluginAnswerer(graph: { query(text: string): Promise<read
   };
 }
 
-/** The meter of one plugin turn: the unit's own spend, in the kind it fills and one row per field and model. */
-function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentMeter | undefined {
+/**
+ * The meter of one plugin turn: the unit's own spend, in the kind it fills and one row per field and model. A unit a
+ * retry attempts again starts from the rows its earlier attempts left in the store (madarch-rcyu, review ALX-2032): one
+ * row states the unit's whole spend, so the attempt's save replaces what stands instead of dropping it.
+ */
+async function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): Promise<AgentMeter | undefined> {
   const usage = wiring.agentUsage;
   if (usage === undefined) return undefined;
+  // Only a turn that runs an agent has a session to meter, which is the same eligibility the turn's own agent wiring
+  // states (madarch-rcyu): a deterministic unit, and every unit of a fill without an agent, writes nothing, so reading
+  // the rows its earlier attempts left would be a read no row can answer — two transactions per unit of the fill's own
+  // budget (review ALX-2032; `test/source-follows-fill.test.ts` counted 24 of them over its 12 deterministic units).
+  if (wiring.agent === undefined || unit.plugin.contract?.agent === undefined) return undefined;
+  const adopted = await readAgentUsageRows(wiring.owner, usage.run, unit.id);
   return new AgentMeter({
     run: usage.run,
     unit: unit.id,
@@ -411,6 +421,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
     ...(unit.plugin.bounds === undefined ? {} : { bounds: unit.plugin.bounds }),
     ...(usage.budget === undefined ? {} : { budget: usage.budget }),
     save: usage.save,
+    ...(adopted.length === 0 ? {} : { adopted }),
   });
 }
 
@@ -457,8 +468,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   }
   if (wiring.executeOperation !== undefined) await wiring.executeOperation(id,'producer-scope',{kind:unit.kind.name,plugin:unit.plugin.id},async tx => await declareProducerScope(tx,wiring.contract,unit.kind.name,unit.plugin.id));
   // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
-  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
-  const meter = pluginUnitMeter(wiring, unit);
+  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row and no read.
+  const meter = await pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
   const closure = withSpanSync('plugin.closure.verify', {}, () => lockedClosureOf(pluginFolder, unit.lock, wiring.store, import.meta.path));
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;

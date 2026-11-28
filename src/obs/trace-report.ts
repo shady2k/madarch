@@ -117,10 +117,18 @@ function spanNumber(attributes: Readonly<Record<string, unknown>>, name: string)
  * The run's model calls as its `agent.usage` spans state them (madarch-stm0.4): each span carries one turn's increment,
  * never a cumulative total, so the report adds the spans and never a store. A line is one kind, field and model; the
  * tokens are the largest of the span's total and the sum of its parts, the same reading the meter bounds by.
+ *
+ * A turn that has not answered yet states its charges as provisional spans (`agent.estimate`, one per charge, madarch-rcyu,
+ * review ALX-2032), and the turn's own span answers it, stating what the turn added to its row. A turn is counted once:
+ * the answering span, when there is one, and the provisional spans only for a turn still open, which counts no turn yet.
+ * The spans that state one turn are told apart by `agent.turn`, or by the span itself for a trace that names none.
  */
 export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
   interface Held { kind: string; field: string; model: string; plugin: string; input: number; output: number; cacheWrite: number; cacheRead: number; total: number; cost: Map<string, number>; turns: number; stopped: AgentUsageLine['stopped'] }
+  /** One turn's spend so far: what its provisional charges say, until its own span answers it. */
+  interface Turn { readonly line: string; readonly cost: Map<string, number>; input: number; output: number; cacheWrite: number; cacheRead: number; total: number; answered: boolean }
   const lines = new Map<string, Held>();
+  const turns = new Map<string, Turn>();
   const stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[] = [];
   for (const span of spans) {
     if (span.name !== 'agent.usage') continue;
@@ -130,18 +138,34 @@ export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
     const plugin = typeof span.attributes['agent.plugin'] === 'string' ? span.attributes['agent.plugin'] : '';
     const key = `${kind}\u0000${field}\u0000${model}`;
     const held = lines.get(key) ?? { kind, field, model, plugin, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0, cost: new Map<string, number>(), turns: 0, stopped: null };
+    lines.set(key, held);
     const input = spanNumber(span.attributes, 'agent.tokens.input');
     const output = spanNumber(span.attributes, 'agent.tokens.output');
-    held.input += input;
-    held.output += output;
-    held.cacheWrite += spanNumber(span.attributes, 'agent.tokens.cache_write');
-    held.cacheRead += spanNumber(span.attributes, 'agent.tokens.cache_read');
-    held.total += Math.max(spanNumber(span.attributes, 'agent.tokens.total'), input + output);
-    held.turns += 1;
+    const cacheWrite = spanNumber(span.attributes, 'agent.tokens.cache_write');
+    const cacheRead = spanNumber(span.attributes, 'agent.tokens.cache_read');
+    const total = Math.max(spanNumber(span.attributes, 'agent.tokens.total'), input + output);
+    const provisional = span.attributes['agent.estimate'] === true;
+    const named = typeof span.attributes['agent.turn'] === 'string' ? span.attributes['agent.turn'] : span.spanId;
+    const turnKey = `${key}\u0000${named}`;
+    const turn = turns.get(turnKey) ?? { line: key, cost: new Map<string, number>(), input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0, answered: false };
+    turns.set(turnKey, turn);
+    // The turn's own span answers it: what the stream charged before it was only the provisional figure, and it stops
+    // standing the moment the turn states its own increment — the estimate is reconciled by the report, never added to it.
+    if (!provisional && !turn.answered) {
+      turn.answered = true;
+      turn.input = 0; turn.output = 0; turn.cacheWrite = 0; turn.cacheRead = 0; turn.total = 0;
+      turn.cost.clear();
+    }
+    if (provisional && turn.answered) continue;
+    turn.input += input;
+    turn.output += output;
+    turn.cacheWrite += cacheWrite;
+    turn.cacheRead += cacheRead;
+    turn.total += total;
     for (const [name, value] of Object.entries(span.attributes)) {
       if (!name.startsWith('agent.cost.') || typeof value !== 'number') continue;
       const currency = name.slice('agent.cost.'.length);
-      held.cost.set(currency, (held.cost.get(currency) ?? 0) + value);
+      turn.cost.set(currency, (turn.cost.get(currency) ?? 0) + value);
     }
     const bound = span.attributes['agent.bound.stop'];
     const scope = span.attributes['agent.bound.scope'];
@@ -149,7 +173,18 @@ export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
       held.stopped = { bound, scope };
       stops.push({ kind, field, model, bound, scope });
     }
-    lines.set(key, held);
+  }
+  for (const turn of turns.values()) {
+    const held = lines.get(turn.line);
+    if (held === undefined) continue;
+    held.input += turn.input;
+    held.output += turn.output;
+    held.cacheWrite += turn.cacheWrite;
+    held.cacheRead += turn.cacheRead;
+    held.total += turn.total;
+    for (const [currency, amount] of turn.cost) held.cost.set(currency, (held.cost.get(currency) ?? 0) + amount);
+    // A turn that has not answered has spent, and it is no turn yet: it counts when its own span lands.
+    if (turn.answered) held.turns += 1;
   }
   const ordered = [...lines.values()].sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0)
     || (left.field < right.field ? -1 : left.field > right.field ? 1 : 0)

@@ -5,6 +5,7 @@ import { productsHome, type DraftEnv } from './home.js';
 import { knowledgeRootOf } from './store.js';
 import { whereAmI } from './lifecycle.js';
 import { withStorePreparation } from './store-preparation.js';
+import { stripEngineLocation } from '../server/engine-location.js';
 
 const HELP = [
   'usage: madarch entity <create|show|update|delete|list|schema> <kind> [uid] [options]',
@@ -48,6 +49,19 @@ export async function entityGuidance(product: KnowledgeProduct | undefined, fold
   }
 }
 
+/**
+ * A refusal's reason without the engine's own locations (madarch-64o5.203): a
+ * bundle names itself `/$bunfs/root/<binary>`, and a refusal that wraps another
+ * repeats a location, so every leading location is stripped. A product's own
+ * location, like `madarch/kinds/…:12:` or a file below the product folder asked
+ * about, is not the engine's and stays.
+ */
+function reasonWithoutEngineLocation(message: string, product?: string): string {
+  let reason = message;
+  for (let stripped = stripEngineLocation(reason, product); stripped !== reason; stripped = stripEngineLocation(reason, product)) reason = stripped;
+  return reason;
+}
+
 /** The command only parses and prints; KnowledgeProduct owns all entity behavior. */
 export async function entityCommand(args: readonly string[], options: {
   cwd?: string; env?: DraftEnv;
@@ -59,6 +73,7 @@ export async function entityCommand(args: readonly string[], options: {
     stdout.write(`${HELP}\nProduct: use --product <folder> or the current product. Open its wiki, select catalogue kinds and press Fill first; then list a kind.\n`); return 0;
   }
   let product: KnowledgeProduct | undefined;
+  let productFolder: string | undefined;
   const json = args.includes('--json');
   try {
     const action = args[0];
@@ -106,11 +121,12 @@ export async function entityCommand(args: readonly string[], options: {
     if (!['create', 'update', 'delete'].includes(action) && words !== undefined) throw new Error(`${action} takes no --words`);
     if (ifRevision !== undefined && action !== 'update' && action !== 'delete') throw new Error(`${action} takes no --if-revision`);
     const env = options.env ?? process.env;
-    const productFolder = entityProductFolder(folder, options.cwd ?? process.cwd());
+    const resolvedFolder = entityProductFolder(folder, options.cwd ?? process.cwd());
+    productFolder = resolvedFolder;
     const homeFolder = productsHome(env, home);
     // The store's schema is prepared by its owning process: borrow a running daemon's service, or own the preparation.
     const run = async (): Promise<number> => {
-      product = new KnowledgeProduct({ productFolder, storeRoot: knowledgeRootOf(homeFolder), env });
+      product = new KnowledgeProduct({ productFolder: resolvedFolder, storeRoot: knowledgeRootOf(homeFolder), env });
       const values: Record<string, unknown> = {};
       if (action === 'create' || action === 'update') {
         const schema = await product.authored('schema', kind!);
@@ -132,9 +148,9 @@ export async function entityCommand(args: readonly string[], options: {
     return await withStorePreparation(homeFolder, run);
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
-    const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
+    const message = reasonWithoutEngineLocation(rawMessage, productFolder);
     const guidance = await entityGuidance(product);
-    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : /^field "([^"]+)"/u.test(rawMessage) ? { field: rawMessage.match(/^field "([^"]+)"/u)![1] } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
+    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : /^field "([^"]+)"/u.test(message) ? { field: message.match(/^field "([^"]+)"/u)![1] } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
     else stderr.write(`${message}\n${JSON.stringify(guidance)}\nRun madarch entity --help for examples and options.\n`);
     return 2;
   } finally { await product?.close(); }

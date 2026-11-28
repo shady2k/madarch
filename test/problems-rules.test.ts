@@ -155,7 +155,7 @@ describe('the code section', () => {
         entity('code.dependency:lodash', 'lodash', { name: 'lodash', version: '4.17.21', dependencyClass: 'explicit' }, span('package.json', 12)),
         entity('code.dependency:left-pad', 'left-pad', { name: 'left-pad', scope: 'transitive' }, span('package-lock.json', 3)),
       ],
-    }), settings()).problems;
+    }), settings({ rules: { 'dependency.declared-unused': { enabled: true } } })).problems;
     const problem = only(problems, 'dependency.declared-unused');
     expect(problem).toMatchObject({ sonar: 'code-smell', severity: 'minor' });
     expect(problem.text).toEqual({ code: 'dependencyDeclaredUnused', args: { dependency: 'lodash (4.17.21)', path: 'package.json' } });

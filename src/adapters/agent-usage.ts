@@ -101,6 +101,54 @@ export async function recordAgentUsage(owner: DatabaseOwner, rows: readonly Agen
   });
 }
 
+/** One row of `agent_usage` as the store holds it, for the store's own reads, in code point order of its identity. */
+function heldRow(row: AgentUsageRow): AgentUsageRecord {
+  return {
+    run: row.run_id, unit: row.unit, plugin: row.plugin, pluginVersion: row.plugin_version, kind: row.kind, field: row.field,
+    model: row.model, inputTokens: Number(row.input_tokens), outputTokens: Number(row.output_tokens),
+    cachedWriteTokens: Number(row.cache_write_tokens), cachedReadTokens: Number(row.cache_read_tokens), totalTokens: Number(row.total_tokens),
+    cost: costOf(row.cost_amount, row.cost_currency), turns: row.turns, reported: row.reported, stopped: row.stopped,
+  };
+}
+
+/** One `agent_usage` row as the store states it: amounts as text, so a number is never read short. */
+interface AgentUsageRow {
+  readonly run_id: string;
+  readonly unit: string;
+  readonly plugin: string;
+  readonly plugin_version: string;
+  readonly kind: string;
+  readonly field: string;
+  readonly model: string | null;
+  readonly input_tokens: string;
+  readonly output_tokens: string;
+  readonly cache_write_tokens: string;
+  readonly cache_read_tokens: string;
+  readonly total_tokens: string;
+  readonly cost_amount: string | null;
+  readonly cost_currency: string | null;
+  readonly turns: number;
+  readonly reported: boolean;
+  readonly stopped: 'tokens' | 'cost' | null;
+}
+
+/**
+ * The rows one run already holds for one unit: what earlier attempts of a retried unit spent. A retried unit's meter
+ * starts from them (madarch-rcyu, review ALX-2032), so the persisted row states the unit's whole spend and the retry's
+ * save replaces it instead of leaving the earlier attempt's spend behind.
+ */
+export async function readAgentUsageRows(owner: DatabaseOwner, run: string, unit: string): Promise<AgentUsageRecord[]> {
+  await createAgentUsageSchema(owner);
+  const rows = await owner.transaction('snapshot', async (tx) => await withSpan('db.agent-usage.readAgentUsageRows', { 'db.system': 'postgres' }, async () => await tx.query<AgentUsageRow>(
+    `SELECT run_id, unit, plugin, plugin_version, kind, field, model, input_tokens::text AS input_tokens, output_tokens::text AS output_tokens,
+            cache_write_tokens::text AS cache_write_tokens, cache_read_tokens::text AS cache_read_tokens,
+            total_tokens::text AS total_tokens, cost_amount::text AS cost_amount, cost_currency, turns, reported, stopped
+     FROM agent_usage WHERE run_id = $1 AND unit = $2`,
+    [run, unit],
+  )));
+  return ordered(rows.rows.map(heldRow));
+}
+
 /** One row of a kind's usage as its page states it: the spend, and what the agent was. */
 export interface KindUsageLine extends AgentUsageRecord {}
 
