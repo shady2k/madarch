@@ -135,6 +135,15 @@ catalogue file is returned and `test/agent-fill-e2e.test.ts` runs in its own req
 of the first, 35 185 ms, and is absent from the shards of the other four, where its own job measured
 26.75 s, 39.19 s, 34.05 s and 38.47 s with both cases.
 
+The five are one placement and its correction, not five repeats of the same thing. The first trial,
+`e4c22fc67`, is the placement before the correction: both study files in the shards. The four runs
+after it carry the delivered placement — the catalogue file back in the shards and
+`test/agent-fill-e2e.test.ts` in its own named job — and are what verifies it. The correction commit
+`d0046bd6d`, and the rebuilt heads after it, also changed explanatory text rather than placement alone:
+the `slow-files` matrix comment in `.github/workflows/ci.yml` (twelve named jobs, the retained file's
+shard sample and the catalogue file's return) and the `source` field of `test/slow-files.json`. Those
+four runs therefore exercised the delivered metadata as well as the delivered placement.
+
 The two required runs of `main` that measured the alone samples are
 [46099717218](https://github.com/shady2k/madarch/actions/runs/46099717218) (`f2c55b343`) and
 [46102135712](https://github.com/shady2k/madarch/actions/runs/46102135712) (`c94b578ec`); their
@@ -155,4 +164,4 @@ See measurement.md ("Publishing a catalogue after removing about 95 kinds") for 
 hashes, the revisions, the recipe, the retained set, the counts and the times of both publications at
 both sizes on both revisions, and for the complete baseline measurement that replaces the "never
 finished" note: on the #353 merge the reduced publication of 95 kinds takes 411.8 s against 14.1 s on
-current `main`, with the same resulting graph on both.
+current `main`, with matching graph counts at both publication sizes on both revisions.

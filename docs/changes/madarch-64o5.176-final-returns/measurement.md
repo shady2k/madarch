@@ -239,17 +239,17 @@ the initial publication — the exit criterion's "about what the initial publica
 initial publication itself costs about the same on both revisions (18.6 s and 17.2 s, within the
 box's run-to-run spread).
 
-The resulting graph is identical on both revisions at both sizes:
+The graph counts match on both revisions at both publication sizes:
 
 | Publication | Writes | Retirements | Nodes | Edges |
 | --- | ---: | ---: | ---: | ---: |
 | Initial | 6 164 | 0 | 9 600 | 36 155 |
 | Reduced | 1 941 | 4 015 | 14 064 | 53 310 |
 
-The counts agree because they are what each publication wrote: the same pinned manifest published
-over a fresh store on both revisions produces the same graph, and the reduced publication produces
-the same reduced graph. They do not by themselves cover the starting state — that is what the pinned
-input does.
+The recorded evidence is a comparison of the counts each publication wrote and of the input hashes
+each run printed. The counts agree at both sizes, so neither revision wrote a different number of
+records, retirements, nodes or edges. That is a match of counts, not an inspection of the full graph,
+and it does not cover the starting state either — the pinned input is what fixes that.
 
 Schema and store preparation sit outside the bracket: 10 095.5 ms and 2 220.0 ms on the baseline,
 13 367.4 ms and 2 935.8 ms on `main` (initial and reduced), and the reduction step plus its commit
@@ -269,12 +269,18 @@ with that difference stated:
 | 2 — exactly 95 kinds removed | `4316c762d` | 16 167.4 ms | 196 | 374 305.1 ms | 33 098 | `fba98bcf` |
 | 2 | `c94b578ec` | 15 563.0 ms | 186 | 11 615.4 ms | 766 | `c3132b00` |
 
-In both pairs the reduced trees came out identical on both revisions (`d65ac4f109…`, the same tree
-the matched pair reduces to), and so did the graph counts (1 470 writes and 4 486 retirements in
-Pair 1; 1 941 writes and 4 015 retirements in Pair 2), which is why only the starting state suffered
-from the difference. Their times agree with the matched pair on order and direction: a reduced
-publication of this catalogue costs about four hundred seconds on the #353 merge and about eleven to
-fourteen seconds on current `main`.
+The hash `d65ac4f109d57ae9526f1072b628864105430390` belongs to the 95-kind reduction and its matched
+rerun: both runs of the matched pair printed it at their reduced publication, and on both revisions.
+Pair 2 removes exactly the same 95 kinds and keeps the same 49, and its own counts are the matched
+pair's (1 941 writes and 4 015 retirements, 14 064 nodes and 53 310 edges), but its log prints no tree
+hash, so the hash is claimed here for the matched rerun that recorded it and not for Pair 2. Pair 1 is
+a different reduction — 138 of the 144 kinds removed, the fixture's six kept — so its reduced tree is
+not the 49-kind result's: its graph is 1 470 writes and 4 486 retirements, 14 201 nodes and 52 802
+edges. What both earlier pairs share with the matched pair is the direction and order of the times,
+not a tree; that, rather than the reduction, is why only their starting state suffered from the
+difference. Their times agree with the matched pair on order and direction: a reduced publication of
+this catalogue costs about four hundred seconds on the #353 merge and about eleven to fourteen seconds
+on current `main`.
 
 ### The upper bound the baseline needed
 
