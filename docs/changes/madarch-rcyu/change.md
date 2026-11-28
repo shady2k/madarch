@@ -87,9 +87,16 @@ named where the turn ends). `agentUsageOf` groups the spans of a line by that
 turn and counts it once: the answering span when the turn answered — the
 estimate that stood for it stops standing, which is what the row and the cap did
 — and the provisional spans only while it has not. A turn that has not answered
-spends, so it states tokens and counts no turn yet. The trace's cost is one span
-per streamed update, the same cadence as the meter's charge (`src/obs/trace.ts`
-flushes the file as it grows, so the api role reads it while the fill runs).
+spends, so it states tokens and counts no turn yet. The trace's cost keeps the
+publication it had before this change — one span per turn: a provisional span
+states the turn's token charge and never a cost, and the span that answers the
+turn states the cost the adapter reported during it, the row's increment since
+the previous settled span. Only that settled span advances `#incrementCosts`'s
+baseline; a provisional span that advanced it left the answering span with no
+cost to state, and `agentUsageOf` replaces a provisional turn by its answer, so
+the completed run stated no cost at all (madarch-rcyu regression, reproduced on
+`0ecabc6`). The trace file still flushes as it grows (`src/obs/trace.ts`), so the
+api role reads it while the fill runs.
 
 `pluginUnitMeter` reads the rows the unit already holds (`readAgentUsageRows`)
 and hands them to the meter as `adopted`: the meter's row is the unit's whole
@@ -101,7 +108,9 @@ streams a known text, writes its readiness file only once it stands at the
 barrier, and waits for that unit's release file, which the case writes after its
 assertion and in its cleanup); the rendered Tokens line is covered by
 `wiki/app/src/components/command-pages.test.tsx`; the focused cases are in
-`test/agent-meter.test.ts`.
+`test/agent-meter.test.ts`, among them the turn that reports its cost before it
+answers: its row and the completed trace each state the one USD 0.50 charge, and
+the case is red on `0ecabc6`, where the trace's cost list is empty.
 
 ## Acceptance evidence
 Pending the stage acceptance of ALX-1936: the run above is the one-time walk,
@@ -112,4 +121,6 @@ A fill whose adapter reports no token usage states, on its run page and in the
 product's own run read, the tokens the meter charged for the turn in flight and
 for every turn that ended, an adapter's own report stands once in that figure
 with its cache categories, and the figure equals the unit's row, the kind's
-totals and the run's cap over every attempt of a retried unit.
+totals and the run's cap over every attempt of a retried unit; and a cost the
+adapter reports during a turn stands once in the unit's row, the kind's totals
+and the completed run's trace.

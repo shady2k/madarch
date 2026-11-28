@@ -619,7 +619,12 @@ export class AgentMeter {
       'agent.row.tokens.cache_read': row.cachedReadTokens,
       'agent.row.tokens': cappedTokensOf(row),
     };
-    for (const amount of this.#incrementCosts(row)) attributes[`agent.cost.${amount.currency}`] = amount.amount;
+    // A provisional span states the turn's token charge and nothing else: the cost this turn added is stated once, by the
+    // span that answers it. Advancing the cost baseline here would leave the settled span with no cost to state, and the
+    // report, which replaces a provisional turn by its answer, would drop the whole charge (madarch-rcyu: a turn whose
+    // `usage_update` reported USD 0.50 kept that charge in the row and in the provisional span, while the completed run's
+    // trace stated no cost at all).
+    if (!estimated) for (const amount of this.#incrementCosts(row)) attributes[`agent.cost.${amount.currency}`] = amount.amount;
     if (this.#context !== undefined) {
       attributes['agent.context.used'] = this.#context.used;
       attributes['agent.context.size'] = this.#context.size;

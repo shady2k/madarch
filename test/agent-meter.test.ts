@@ -44,6 +44,7 @@ function folder(): string {
 /** One scripted step, as the fake agent's `script` scenario reads it. */
 interface Step {
   readonly say?: string;
+  readonly thought?: string;
   readonly usage?: { readonly used?: number; readonly size?: number; readonly cost?: { readonly amount: number; readonly currency: string } };
   readonly end?: { readonly stopReason?: string; readonly usage?: unknown };
   readonly wait?: boolean;
@@ -380,6 +381,32 @@ describe('the run\'s trace', () => {
     expect(answered).toHaveLength(1);
     expect(answered[0]?.attributes).toMatchObject({ 'agent.tokens.input': row!.inputTokens, 'agent.tokens.total': row!.totalTokens, 'agent.reported': false, 'agent.turns': 1 });
     expect(traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage).toMatchObject({ inputTokens: row!.inputTokens, totalTokens: row!.totalTokens, turns: 1 });
+  });
+
+  test('a cost the adapter reports before the turn answers stays in the completed trace, stated once', async () => {
+    const where = folder();
+    const session = await sessionOf({
+      steps: [
+        // The order the owner's walk met: the adapter's cost arrives before the stream and the answer that settles the turn.
+        { usage: { used: 100, size: 200_000, cost: { amount: 0.5, currency: 'USD' } } },
+        { thought: 'x'.repeat(400) },
+        { end: { stopReason: 'end_turn', usage: { inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214 } } },
+      ],
+    });
+    const trace = openTrace({ store: where, runId: 'fill-cost-live' });
+    const meter = meterOf({ run: 'fill-cost-live' });
+    try {
+      await meter.runTurn(session, 'a turn that reports its cost before it answers', { field: 'definition', model: 'sonnet' });
+    } finally {
+      closeTrace(trace);
+    }
+    // The row keeps the charge the adapter reported, and the run's trace states that same charge once: the provisional
+    // span of the open turn describes its token charge only, and the span that answers it states the cost, so the report
+    // that replaces the provisional turn by its answer keeps the charge instead of dropping it (madarch-rcyu).
+    expect(meter.rows()[0]).toMatchObject({ cost: { amount: 0.5, currency: 'USD' }, turns: 1 });
+    const report = traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage;
+    expect(report).toMatchObject({ inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214, turns: 1 });
+    expect(report.cost).toEqual([{ currency: 'USD', amount: 0.5 }]);
   });
 
   test('a turn that is still open states its estimate in a provisional span, and its answer reconciles it exactly once', async () => {
