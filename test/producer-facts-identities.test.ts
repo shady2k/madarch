@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
+import { canonicalAssertionValue } from '../src/graph/assertion-selection.js';
 import { producerFacts } from '../src/graph/producer-facts.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
+import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { bindTestWriteCapability, TEST_SOURCE_UID } from './write-capability-fixture.js';
 
@@ -82,5 +83,97 @@ test('mixed reconciliation kinds share one structural identity statement and ret
     ]));
     expect(revisions.every(revision => /^[0-9]+$/u.test(revision.recordedSequence))).toBe(true);
     expect(identityStatements).toHaveLength(1);
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('a vertex and an edge that share a numeric id are separate subjects in both uid orders', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  // The assertion each fixture subject's last statement made, and the sequence the store holds for that statement.
+  const finalAssertion = new Map<string, string>();
+  const storedSequences = new Map<string, string>();
+  try {
+    await owner.transaction('write', async tx => {
+      await bindTestWriteCapability(tx, contract);
+      await publishGraphDrafts(tx, contract, {
+        vertices: [{ ...ref('fixture.group', 'group'), values: { text: 'group value' }, producer: 'reader', producerVersion: '1' }],
+        removals: [],
+      }, 1);
+      const group = (await tx.query<{ id: string; scope: string }>(
+        "SELECT n.id::text AS id,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='fixture.group'")).rows[0]!;
+      // `node.id` and `edge.id` come from independent sequences, so one number may name a vertex and an edge. Each pair
+      // below holds both rows on one number, with the uid order that decides which row a bare-id map would keep: the
+      // vertex is recorded last in the first pair, the edge in the second.
+      const pairs = [
+        { id: 900001, vertex: 'later-vertex', vertexUid: 'ffffffff-ffff-7fff-bfff-fffffffffff1',
+          edge: 'twin-a', edgeUid: '00000000-0000-7000-8000-0000000000a1' },
+        { id: 900002, vertex: 'early-vertex', vertexUid: '00000000-0000-7000-8000-0000000000b2',
+          edge: 'twin-b', edgeUid: 'ffffffff-ffff-7fff-bfff-fffffffffff2' },
+      ] as const;
+      for (const pair of pairs) {
+        await tx.query(`INSERT INTO node (id,uid,entity_id,key,identity_scope) OVERRIDING SYSTEM VALUE
+          VALUES ($1::bigint,$2::uuid,(SELECT id FROM entity WHERE name='fixture.item'),jsonb_build_object('name',$3::text),$4::uuid)`,
+          [pair.id, pair.vertexUid, pair.vertex, group.scope]);
+        await tx.query(`INSERT INTO edge (id,uid,entity_id,from_node,to_node,discriminator,context_id) OVERRIDING SYSTEM VALUE
+          VALUES ($1::bigint,$2::uuid,(SELECT id FROM entity WHERE name='fixture.link'),$1::bigint,$3::bigint,$4::text,1)`,
+          [pair.id, pair.edgeUid, Number(group.id), pair.edge]);
+        for (const [sort, kind, property, value] of [
+          ['vertex', 'fixture.item', 'name', pair.vertex],
+          ['vertex', 'fixture.item', '$exists', true],
+          ['vertex', 'fixture.item', 'text', `${pair.vertex} value`],
+          ['edge', 'fixture.link', '$exists', true],
+          ['edge', 'fixture.link', 'text', `${pair.edge} value`],
+        ] as const) finalAssertion.set(sort === 'vertex' ? pair.vertex : pair.edge,
+          await writeAssertion(tx, contract, {
+            sort, kind, subjectId: String(pair.id), property, operation: 'assert', value,
+          }, 1));
+      }
+      // The first pair's edge is withdrawn: it keeps a stream position and an answer that names it, and it is no unit.
+      finalAssertion.set(pairs[0].edge, await writeAssertion(tx, contract, {
+        sort: 'edge', kind: 'fixture.link', subjectId: String(pairs[0].id), property: '$exists', operation: 'retract',
+      }, 1));
+      // The fixture writes return the assertion uid, so the sequence each subject's last statement holds is read from the
+      // store rather than assumed: the answer's `recordedSequence` is the vertex write precondition the SDK sends back.
+      for (const row of (await tx.query<{ uid: string; seq: string }>(
+        `SELECT n.uid::text AS uid,a.recorded_sequence::text AS seq FROM assertion a JOIN node n ON n.id=a.assertion_id
+         WHERE n.uid=ANY($1::uuid[])`, [[...finalAssertion.values()]])).rows) storedSequences.set(row.uid, row.seq);
+    });
+    const facts = await producerFacts(owner, contract, TEST_SOURCE_UID, ['fixture.item'], ['fixture.link'], {
+      kind: 'fixture.item', ownedEdges: [{ kind: 'fixture.link', from: 'fixture.item', to: 'fixture.group' }],
+    });
+    const { revisions, coverage: _coverage, ...held } = facts;
+    const later = ref('fixture.item', 'later-vertex');
+    const earlier = ref('fixture.item', 'early-vertex');
+    const to = ref('fixture.group', 'group');
+    expect(held).toEqual({
+      vertices: [
+        { ...earlier, values: { text: 'early-vertex value' } },
+        { ...later, values: { text: 'later-vertex value' } },
+      ],
+      edges: [{ kind: 'fixture.link', from: earlier, to, discriminator: 'twin-b', values: { text: 'twin-b value' } }],
+    });
+    // The withdrawn edge still answers with its own ends, and every revision names the row its own sequence holds.
+    const subjects = revisions.map(revision => canonicalAssertionValue(revision.subject));
+    expect(subjects).toEqual([
+      canonicalAssertionValue({ sort: 'edge', kind: 'fixture.link', from: later, to, discriminator: 'twin-a' }),
+      canonicalAssertionValue({ sort: 'edge', kind: 'fixture.link', from: earlier, to, discriminator: 'twin-b' }),
+      canonicalAssertionValue({ sort: 'vertex', ...earlier }),
+      canonicalAssertionValue({ sort: 'vertex', ...later }),
+    ]);
+    expect(subjects).toEqual([...subjects].sort());
+    // Each revision names its own subject together with the exact sequence the store holds for that subject's final
+    // statement — including the retraction of the withdrawn twin-a edge. A read that answered the colliding vertex with
+    // the edge's sequence keeps both subject identities and would still pass a decimal-shape check, but fails here: the
+    // SDK sends that value as the vertex write precondition and the writer refuses it with REVISION_CONFLICT.
+    const sequenceOf = (subject: string): string => storedSequences.get(finalAssertion.get(subject)!)!;
+    const expected = [
+      { subject: { sort: 'edge' as const, kind: 'fixture.link', from: later, to, discriminator: 'twin-a' }, recordedSequence: sequenceOf('twin-a') },
+      { subject: { sort: 'edge' as const, kind: 'fixture.link', from: earlier, to, discriminator: 'twin-b' }, recordedSequence: sequenceOf('twin-b') },
+      { subject: { sort: 'vertex' as const, ...earlier }, recordedSequence: sequenceOf('early-vertex') },
+      { subject: { sort: 'vertex' as const, ...later }, recordedSequence: sequenceOf('later-vertex') },
+    ];
+    expect(revisions.map(revision => ({ subject: canonicalAssertionValue(revision.subject), recordedSequence: revision.recordedSequence })))
+      .toEqual(expected.map(revision => ({ subject: canonicalAssertionValue(revision.subject), recordedSequence: revision.recordedSequence })));
+    // Four distinct stored positions: a read that swapped two subjects' sequences fails the equality above.
+    expect(new Set(expected.map(revision => revision.recordedSequence)).size).toBe(4);
   } finally { await owner.close(); }
 }, 30_000);

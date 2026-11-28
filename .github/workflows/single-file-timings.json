@@ -346,7 +346,7 @@
     "test/problems-wiki.test.ts": 6500,
     "test/producer-applicability.test.ts": 9184,
     "test/producer-binding.test.ts": 2851,
-    "test/producer-facts-identities.test.ts": 13000,
+    "test/producer-facts-identities.test.ts": 12130,
     "test/producer-facts.test.ts": 5841,
     "test/producer-lifecycle.test.ts": 29288,
     "test/producer-outcomes.test.ts": 9000,
