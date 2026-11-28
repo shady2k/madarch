@@ -224,15 +224,29 @@ jobs:
           fi
 
   # The twelve files test/slow-files.json records as green-slow that this matrix
-  # runs, measured over 30 seconds alone on a runner in runs 45758277151,
-  # 45809866011, 45910624124 and 46072517676 (test/fill-trace.test.ts: 33.686 s
-  # alone and 30.011 s in shard 2), run here one job each. The shards leave out
-  # every file the list names (the shard step here and scripts/run-tests.ts), so
-  # this required matrix is the blocking coverage of these twelve. Four fixtures of
-  # the list run in partition-bootstrap, not in `checks`: git-partition-bootstrap,
+  # runs, measured over 30 seconds alone on a runner, run here one job each. Ten
+  # are the speed-up stream's: nine of them measured alone in three samples of the
+  # F4 tree (runs 46044618928, 46045922097 and 46046625374; every entry also names
+  # its earlier run), and test/catalogue-kind-relations.test.ts is listed again
+  # because its two shard samples were above the bound (33 641 ms in run
+  # 46063935769 and 34 019 ms in run 46078818727) and its complete file measured
+  # 37 781 ms alone in the second run's confirmation. The eleventh,
+  # test/fill-trace.test.ts, is the status-work quarantine work's (33.686 s alone
+  # and 30.011 s in shard 2, run 46072517676).
+  # Eight of those nine were above the bound in all three samples; the
+  # median of agent-fill-e2e was above it while one of its samples was inside, so
+  # it needs a fresh confirmation before it can return to the shards (it was green
+  # alone in run 46063935769, at 27.30 s). test/status-work.test.ts runs its two
+  # active cases here, the third being in the repository's case-level quarantine
+  # (madarch-stm0.13, docs/quarantine.md). test/architecture-repository.test.ts
+  # passed in 33.971 s alone and 31.354 s in shard 1 of run 46085362733.
+  # The shards leave out every file the
+  # list names (the shard step here and scripts/run-tests.ts), so this required
+  # matrix is the blocking coverage of these twelve. Four fixtures of the list run in
+  # partition-bootstrap, not in `checks`: git-partition-bootstrap,
   # h3-real-reconciliation, disk-support-ownership and agent-fill-graph-mcp. Every
-  # other green-slow entry runs only in the nightly slow-tests.yml, as do main's own
-  # entries in the list.
+  # other green-slow entry runs only in the nightly slow-tests.yml, as do main's
+  # own entries in the list.
   # A job fails when its run selected no file, did not name it once as the run's
   # own header, reported fewer passing cases than the file holds, or reported a
   # failure: a green job that cannot show the file ran is not coverage.
@@ -246,15 +260,15 @@ jobs:
         include:
           - { file: test/catalogue-kind-relations.test.ts, cases: 1 }
           - { file: test/agent-fill-e2e.test.ts, cases: 2 }
+          - { file: test/architecture-repository.test.ts, cases: 1 }
           - { file: test/db-schema-path.test.ts, cases: 5 }
-          - { file: test/api-role-first-page.test.ts, cases: 1 }
           - { file: test/owner-fill-path.test.ts, cases: 1 }
           - { file: test/ordinary-plugin-partition.test.ts, cases: 16 }
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
           - { file: test/imports-path.test.ts, cases: 5 }
           - { file: test/roles-two-and-two.test.ts, cases: 1 }
           - { file: test/status-work.test.ts, cases: 2 }
-          - { file: test/source-follows-fill.test.ts, cases: 2 }
+          - { file: test/source-follows-fill.test.ts, cases: 3 }
           - { file: test/fill-trace.test.ts, cases: 2 }
     steps:
       - uses: actions/checkout@v7
