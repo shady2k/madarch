@@ -9,6 +9,7 @@
  * fill role that claims it, and the run's end read back from the store. Every fill is deterministic and runs no model.
  */
 import { afterAll, expect, test } from 'bun:test';
+import { Type } from 'typebox';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,13 +22,14 @@ import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { runFill } from '../src/fill/run.js';
-import { writeOrchestration, writeFillEndIfAbsent } from '../src/graph/fill-orchestration.js';
+import { writeOrchestration, writeFillEndIfAbsent, readSealedChildren, sealSplitIn } from '../src/graph/fill-orchestration.js';
 import { readFillEnd, readProgress } from '../src/graph/fill-orchestration.js';
-import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits } from '../src/graph/fill-state.js';
+import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits, readUnit, readUnitGeneration } from '../src/graph/fill-state.js';
 import { listRepositories } from '../src/graph/records.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
 import { claimFillRun, enqueueFillRun, FILL_RUN_QUEUE, fillRunHeldElsewhere, openFillRunQueue } from '../src/fill/run-jobs.js';
-import { createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, failAndSettleRun, planRun, recoverOrphanedRun, startRun } from '../src/fill/orchestrator.js';
+import { admitUnits, createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, failAndSettleRun, planRun, recoverOrphanedRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { fixtureOperations } from './fill-operation-fixture.js';
@@ -510,4 +512,171 @@ test('a re-delivered attempt that cannot build its service ends the run instead 
     await Promise.race([press.settled().catch(() => undefined), Bun.sleep(3_000)]);
     await role.catch(() => undefined);
   }
+}), 120_000);
+
+/**
+ * The stage of the generation-recovery cases (ALX-2023, madarch-47vw.8): one unit that splits into two children named by
+ * the stage itself, and children that answer a draft. A child's id carries no run, so the same split names the same two
+ * units in every run of the product — the shape a repeat split of a stand meets, and the shape the seal of a split has to
+ * decide: whether the generation it finds belongs to the run that splits now, to a run that ended, or to one still working.
+ */
+function splittingRecoveryStage(): FillStage {
+  return {
+    id: 'parts', version: 1, consumes: { required: [], optional: [] }, produces: [],
+    configSchema: Type.Object({}), defaults: DEFAULT_STAGE_DEFAULTS,
+    plan: () => ({ units: [{ id: 'root', scope: 'the repository' }, { id: 'other', scope: 'the other subject' }], coverage: 'planned' }),
+    execute: (unit, context) => {
+      if (unit.id !== 'root') return { outcome: 'draft' };
+      // The attempt after the join finds the set it sealed (decision 0027) and builds on it rather than splitting again.
+      if ((context.sealedChildren?.length ?? 0) > 0) return { outcome: 'draft' };
+      return { outcome: 'split', children: [{ id: 'left', scope: 'the left half' }, { id: 'right', scope: 'the right half' }] };
+    },
+  };
+}
+
+/** The orchestrator of the generation-recovery cases: the store and queue a fill uses, one stage the case declares. */
+async function splitOrchestrator(place: { folder: string; name: string }, owner: Awaited<ReturnType<typeof createDatabaseOwner>>, database: FillStateDatabase): Promise<{ orchestrator: FillOrchestrator }> {
+  const queue = await createPgBossQueue({ owner, supervise: false });
+  opened.push(queue);
+  await queue.declare({ name: 'fill-units', leaseSeconds: DEFAULT_ORCHESTRATOR_LIMITS.attemptSeconds, heartbeatSeconds: DEFAULT_ORCHESTRATOR_LIMITS.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+  const orchestrator = createOrchestrator({
+    database, registry: new StageRegistry().register(splittingRecoveryStage()), product: place.name,
+    queue, queueName: 'fill-units',
+    configuration: async () => undefined,
+    snapshot: async () => ({ repository: place.folder, defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:fixture' }),
+    graph: () => ({ query: async () => [] }), inputs: () => ({}), operations: fixtureOperations(owner),
+  });
+  return { orchestrator };
+}
+
+/**
+ * The stand a run that will not finish left behind: the two children of the parent's split, a unit the run never reached,
+ * and the parent itself. The run ends the way a process that died ends, so its units keep the states they stood in — the
+ * residue the ALX-1717 stand carried after `fill-20261127T212030206Z` (ALX-2025). `end: 'waiting'` leaves the parent
+ * waiting for children that will never run, which is the residue the stand's first replay met; `end: 'skipped'` is the
+ * stand a run that failed after the settlement fix leaves: the parent and one child stand terminal, beside a live child.
+ */
+async function staleStand(database: FillStateDatabase, place: { name: string }, seedRun: string, options: { readonly end: 'waiting' | 'skipped' }): Promise<void> {
+  const at = Date.now() - 60_000;
+  await createRun(database, { runId: seedRun, product: place.name, at });
+  await advanceRun(database, { runId: seedRun, event: { type: 'plan', at: at + 1_000, configuration: 'fixture' } });
+  await advanceRun(database, { runId: seedRun, event: { type: 'start', at: at + 2_000, stages: 1 } });
+  await writeOrchestration(database, async tx => {
+    for (const [unitId, scopeKey] of [['parts/root', 'root'], ['parts/other', 'other'], ['parts/left', 'left'], ['parts/right', 'right']] as const) {
+      await createUnitIn(tx, { unitId, product: place.name, runId: seedRun, stageId: 'parts', scopeKey, inputsDigest: 'fixture', retries: 2, at });
+    }
+    await sealSplitIn(tx, { parentUnitId: 'parts/root', parentGeneration: 1, children: [{ unitId: 'parts/left', generation: 1 }, { unitId: 'parts/right', generation: 1 }], at });
+    const admitted = await advanceUnitIn(tx, { unitId: 'parts/root', event: { type: 'admit', at, generation: 1 } });
+    if (!admitted.ok) throw new Error(`the fixture parent was not admitted: ${admitted.refusal.reason}`);
+    const started = await advanceUnitIn(tx, { unitId: 'parts/root', event: { type: 'start', at, generation: 1, fence: 1 } });
+    if (!started.ok) throw new Error(`the fixture parent did not start: ${started.refusal.reason}`);
+    const waiting = await advanceUnitIn(tx, {
+      unitId: 'parts/root',
+      event: { type: 'wait-for-children', at, generation: 1, fence: 1, children: [
+        { unitId: 'parts/left', generation: 1, published: false, fresh: false, failed: false },
+        { unitId: 'parts/right', generation: 1, published: false, fresh: false, failed: false },
+      ] },
+    });
+    if (!waiting.ok) throw new Error(`the fixture parent did not wait for its children: ${waiting.refusal.reason}`);
+    if (options.end === 'skipped') {
+      // A run that ends by skipping what it holds leaves the parent, a unit it never reached and one child terminal,
+      // and the other child live: the residue a stand failed after the settlement fix carries (madarch-47vw.7).
+      for (const unitId of ['parts/root', 'parts/other', 'parts/right']) {
+        const skipped = await advanceUnitIn(tx, { unitId, event: { type: 'skip', at, cause: 'the fixture run ended with the unit unfinished' } });
+        if (!skipped.ok) throw new Error(`the fixture unit ${unitId} did not skip: ${skipped.refusal.reason}`);
+      }
+    }
+  });
+  const failed = await advanceRun(database, { runId: seedRun, event: { type: 'fail', at: at + 3_000, cause: 'process-ended', detail: 'the fixture run ended with its units unsettled' } });
+  if (!failed.ok) throw new Error(`the fixture run did not end: ${failed.refusal.reason}`);
+}
+
+test('a new run retries the units a failed run left live and unpublished', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('generations');
+  const { owner, database } = await preparedStore(place);
+  const { orchestrator } = await splitOrchestrator(place, owner, database);
+  const seedRun = 'fill-20261127T212030206Z';
+  await staleStand(database, place, seedRun, { end: 'waiting' });
+
+  // What the ended run left before another run plans: the parent waits for children that will never run, and the unit the
+  // run never reached stands planned. A generation such a run left live is not a unit another run works.
+  expect(await readUnit(database, 'parts/root')).toMatchObject({ runId: seedRun, generation: 1, state: 'waiting_children' });
+  expect(await readUnit(database, 'parts/other')).toMatchObject({ runId: seedRun, generation: 1, state: 'planned' });
+
+  // A new run plans the same units. On the base its plan refuses with `unit-in-another-run` and nothing runs; the ended
+  // run's generations are released the way that run's own end releases what it holds, and this run's generation opens
+  // over each of them under the planning's own transaction.
+  const next = 'generations-next';
+  await createRun(database, { runId: next, product: place.name, at: Date.now() });
+  const planned = await planRun(orchestrator, { runId: next });
+  if (planned.outcome !== 'planned') throw new Error(`the new run did not plan over the failed run's units: ${JSON.stringify(planned)}`);
+  const plannedUnit = (unitId: string) => planned.units.find((unit) => unit.unitId === unitId);
+  expect(plannedUnit('parts/root')).toMatchObject({ generation: 2, state: 'planned', created: true });
+  expect(plannedUnit('parts/other')).toMatchObject({ generation: 2, state: 'planned', created: true });
+
+  // The generations the ended run left are cancelled — the only step such a run's generations take — and the run that
+  // plans them owns their second generations.
+  expect(await readUnitGeneration(database, 'parts/root', 1)).toMatchObject({ runId: seedRun, state: 'cancelled' });
+  expect(await readUnitGeneration(database, 'parts/other', 1)).toMatchObject({ runId: seedRun, state: 'cancelled' });
+  expect(await readUnitGeneration(database, 'parts/root', 2)).toMatchObject({ runId: next, state: 'planned' });
+  expect(await readUnitGeneration(database, 'parts/other', 2)).toMatchObject({ runId: next, state: 'planned' });
+  // The children of the ended run's split are nobody's to plan here: the run that plans the parent reaches them through
+  // a split of its own, and the ended run's own generation is left as it stood.
+  expect(await readUnitGeneration(database, 'parts/left', 1)).toMatchObject({ runId: seedRun, state: 'planned' });
+
+  // The retry says what it replaced, so a person reading the run sees the residue it worked through.
+  const events = await readProgress(database, next);
+  const plannedEvents = events.filter((event) => event.kind === 'unit-planned').map((event) => event.summary);
+  expect(plannedEvents).toEqual(expect.arrayContaining([
+    expect.stringContaining('retrying the waiting_children generation 1'),
+    expect.stringContaining('retrying the planned generation 1'),
+  ]));
+}), 120_000);
+
+test('a repeat split seals the children of the run that splits now, across a live and a terminal leftover', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('reseal');
+  const { owner, database } = await preparedStore(place);
+  const { orchestrator } = await splitOrchestrator(place, owner, database);
+  const seedRun = 'reseal-seeded';
+  await staleStand(database, place, seedRun, { end: 'skipped' });
+  // The ended run's parent stands terminal, the way its own settlement left it, so planning the same unit is the retry a
+  // failed generation already has; the children of its split are what the repeat seal meets.
+  expect(await readUnitGeneration(database, 'parts/root', 1)).toMatchObject({ runId: seedRun, state: 'skipped' });
+  expect(await readUnitGeneration(database, 'parts/left', 1)).toMatchObject({ runId: seedRun, state: 'planned' });
+  expect(await readUnitGeneration(database, 'parts/right', 1)).toMatchObject({ runId: seedRun, state: 'skipped' });
+
+  const next = 'reseal-next';
+  await createRun(database, { runId: next, product: place.name, at: Date.now() });
+  const planned = await planRun(orchestrator, { runId: next });
+  if (planned.outcome !== 'planned') throw new Error(`the new run did not plan over the failed run's units: ${JSON.stringify(planned)}`);
+  // The plan of a run opens its stages too: the run stands `running` and its units are admitted from here.
+  expect((await readRun(database, next))?.state).toBe('running');
+  await admitUnits(orchestrator, { runId: next });
+
+  // One attempt of this run's parent splits again, over the two children the ended run left. On the base the seal
+  // refuses them ("a child of this split is this run's to seal") and the parent blocks instead of splitting.
+  const split = await workOnce(orchestrator, { worker: 'reseal-1' });
+  expect(split).toMatchObject({ claimed: true, unitId: 'parts/root', result: 'split' });
+
+  // The seal names this run's own generations: one opened over the live leftover, one over the skipped one.
+  const sealed = await readSealedChildren(database, 'parts/root', 2);
+  expect(sealed.map((child) => child.unitId).sort()).toEqual(['parts/left', 'parts/right']);
+  for (const child of sealed) {
+    expect(await readUnitGeneration(database, child.unitId, child.generation)).toMatchObject({ runId: next, generation: 2, state: 'planned' });
+  }
+  // The ended run's generations are released, and the terminal one keeps the record it ended with.
+  expect(await readUnitGeneration(database, 'parts/left', 1)).toMatchObject({ runId: seedRun, state: 'cancelled' });
+  expect(await readUnitGeneration(database, 'parts/right', 1)).toMatchObject({ runId: seedRun, state: 'skipped' });
+  // The parent waits for exactly the generations this run opened, not for the ended run's.
+  expect(await readUnit(database, 'parts/root')).toMatchObject({ runId: next, generation: 2, state: 'waiting_children' });
+
+  // The new children run and publish under this run, and the parent joins them and publishes in its turn: the seal
+  // bound the parent to children something will finish.
+  for (let pass = 0; pass < 8 && (await readUnit(database, 'parts/root'))?.state === 'waiting_children'; pass += 1) {
+    await schedulerPass(orchestrator, { runId: next });
+    await workOnce(orchestrator, { worker: `reseal-${String(pass + 2)}` });
+  }
+  expect(await readUnitGeneration(database, 'parts/left', 2)).toMatchObject({ runId: next, state: 'published' });
+  expect(await readUnitGeneration(database, 'parts/right', 2)).toMatchObject({ runId: next, state: 'published' });
+  expect(await readUnit(database, 'parts/root')).toMatchObject({ runId: next, state: 'published' });
 }), 120_000);
