@@ -278,7 +278,7 @@ jobs:
           - { file: test/status-work.test.ts, cases: 2 }
           - { file: test/source-follows-fill.test.ts, cases: 3 }
           - { file: test/fill-trace.test.ts, cases: 2 }
-          - { file: test/fill-run-recovery.test.ts, cases: 8 }
+          - { file: test/fill-run-recovery.test.ts, cases: 14 }
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { readPinnedGraphContract } from '../src/product/preparation-contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
@@ -43,15 +43,26 @@ const work = mkdtempSync(join(tmpdir(), 'madarch-fill-recovery-'));
 const opened: { close?(): Promise<void>; stop?(): Promise<void> }[] = [];
 const products: KnowledgeProduct[] = [];
 
+/**
+ * The file's own cleanup. Every fixture here has a store of its own with its own PostgreSQL server, and closing one is a
+ * shutdown checkpoint of that store — local work with nothing shared between two fixtures — so the closes run beside each
+ * other instead of one after another. Done one by one they take longer than the 60 s a hook is given, and the file failed
+ * after all fourteen of its cases had passed (measured 2026-11-28 on agent-linux-01, 2 vCPU: seven product closes at 14,
+ * 9 359, 4, 99, 30 256, 5, 255 and 20 841 ms — 60.8 s — while every queue and owner of the file closed in 1.5 s together).
+ * The bound is named because the work is long: the same closes beside each other end in about 30 s, the heaviest store's
+ * own checkpoint, and a machine slower than this one keeps its own room instead of failing the file's teardown.
+ */
 afterAll(async () => {
-  for (const product of products.splice(0)) await product.close().catch(() => undefined);
-  while (opened.length > 0) {
-    const one = opened.pop()!;
-    await one.stop?.().catch(() => undefined);
-    await one.close?.().catch(() => undefined);
+  const closing: Promise<void>[] = products.splice(0).map(async (product) => { await product.close().catch(() => undefined); });
+  for (const one of opened.splice(0)) {
+    closing.push((async () => {
+      await one.stop?.().catch(() => undefined);
+      await one.close?.().catch(() => undefined);
+    })());
   }
+  await Promise.all(closing);
   rmSync(work, { recursive: true, force: true });
-});
+}, 180_000);
 
 /** One product over a real repository, with only the deterministic repository plugins declared. */
 function fixture(label: string): { folder: string; knowledgeRoot: string; home: string; name: string } {
@@ -356,7 +367,7 @@ test('a planning refusal ends the press, leaves the graph readable, and the same
     await press.settled().catch(() => undefined);
     await role.catch(() => undefined);
   }
-}), 300_000);
+}), 240_000);
 
 test('a live unit job keeps its run from being recovered, and the run is recovered once that job is spent', async () => await withStorePreparationOwner(async () => {
   const place = fixture('units');
@@ -843,45 +854,109 @@ test('a cleanup that refuses at its last write leaves the run, its units and its
   expect(await readFillEnd(owner, runId)).toBeNull();
 }), 120_000);
 
-test('the claim of a fill is kept alive from the claim to its settlement, and nothing beats it after', async () => await withStorePreparationOwner(async () => {
-  const place = fixture('claim-beat');
-  const { owner, storeFolder } = await preparedStore(place);
-  const queue = await openFillRunQueue(owner);
-  opened.push(queue);
-  // The heartbeat the role beats its claimed job with (ALX-2077): asked for by name here, so a tree that has none fails
-  // where the behaviour is missing rather than failing to load the file and hiding the other cases' baseline.
-  const runJobs: { startClaimHeartbeat?: (queue: Awaited<ReturnType<typeof openFillRunQueue>>, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, intervalMs?: number) => { stop(): Promise<void> } } = await import('../src/fill/run-jobs.js');
-  if (runJobs.startClaimHeartbeat === undefined) throw new Error('the fill queue hands out no claim heartbeat: a claim goes quiet while the attempt cleans up, and the queue hands the job to its next attempt');
-  const startClaimHeartbeat = runJobs.startClaimHeartbeat;
-  if ((await enqueueFillRun(queue, { product: place.folder, store: storeFolder, runId: 'claim-beat-run' })).created !== true) throw new Error('the fixture job was not enqueued');
-  const claimed = await claimFillRun(queue);
-  if (claimed === null) throw new Error('the fixture job was not claimed');
-  const held = async (): Promise<boolean> => await owner.transaction('snapshot', async (tx) => await queue.isActive(claimed, tx));
-  const beatOf = async (): Promise<string | undefined> => (await owner.transaction('snapshot', async (tx) => (await tx.query<{ beat: string }>(`SELECT heartbeat_on::text AS beat FROM pgboss.job WHERE id = $1::uuid`, [claimed.id])).rows[0]))?.beat;
+/**
+ * The moment a case and the code it drives meet on: the code waits here, the case reads what it needs, and only then says
+ * go on. Both halves are promises, so neither side races the other's speed.
+ */
+function meeting(): { arrived: Promise<void>; arrive: () => void; released: Promise<void>; release: () => void } {
+  let arrive = (): void => undefined;
+  let release = (): void => undefined;
+  const arrived = new Promise<void>((resolve) => { arrive = resolve; });
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  return { arrived, arrive, released, release };
+}
 
-  // A claim whose last touch is past the queue's 30 s liveness window is dead by the queue's own rule: only a beat from
-  // the attempt holding it says otherwise.
-  await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET heartbeat_on = clock_timestamp() - interval '40 seconds' WHERE id = $1::uuid`, [claimed.id]); });
-  expect(await held()).toBe(false);
-  const heartbeat = startClaimHeartbeat(queue, claimed, 40);
+test('the claim of a queued fill is beaten from its setup through its settlement, and that attempt settles it', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('claim-span');
+  const { owner } = await preparedStore(place);
+  const observed = await openFillRunQueue(owner);
+  opened.push(observed);
+  const press = new KnowledgeProduct({ productFolder: place.folder, storeRoot: place.knowledgeRoot, fillQueued: true });
+  products.push(press);
+  const started = await press.startFill({ pluginsOnly: true });
+  if (!started.started) throw new Error(`the press was refused before the queue: ${started.message}`);
+
+  /** The pressed fill's job as the queue holds it: one job per product until the attempt that claimed it settles it. */
+  const job = async (): Promise<{ id: string; state: string; attempt: number; lease: number; beat: string } | undefined> => await owner.transaction('snapshot', async (tx) =>
+    (await tx.query<{ id: string; state: string; attempt: number; lease: number; beat: string }>(`SELECT id::text AS id, state, retry_count AS attempt, expire_seconds AS lease, heartbeat_on::text AS beat FROM pgboss.job WHERE name = 'fill-runs' ORDER BY created_on DESC LIMIT 1`)).rows[0]);
+  /** Whether the queue still holds that attempt, read by the queue's own rule rather than by this case's copy of it. */
+  const holds = async (claimed: { id: string; attempt: number; lease: number }): Promise<boolean> => await owner.transaction('snapshot', async (tx) =>
+    await observed.isActive({ id: claimed.id, attempt: claimed.attempt, leaseSeconds: claimed.lease, queue: FILL_RUN_QUEUE, retries: 1, data: { product: place.folder, store: '', runId: started.runId } }, tx));
+
+  // Two moments the role is held at while it drives the press: its own store's open for the run — before the run has a
+  // heartbeat of its own — and the run's owner closing, after that heartbeat stopped and with the queue's settlement owed.
+  const duringSetup = meeting();
+  const beforeSettlement = meeting();
+  let storesOpened = 0;
+  let done = false;
+  const roleLog: string[] = [];
+  const role = runFillRole({
+    knowledgeRoot: place.knowledgeRoot,
+    log: (line) => { roleLog.push(line); if (roleLog.length > 40) roleLog.shift(); },
+    idle: () => done,
+    // The role opens a store once to watch it and once for the run it drives: the run's own owner is held at both ends.
+    openStore: async (folder) => {
+      const inner = await createDatabaseOwner({ store: folder, connectOnly: true });
+      if ((storesOpened += 1) === 1) return inner;
+      duringSetup.arrive();
+      await duringSetup.released;
+      const runOwner: DatabaseOwner = {
+        location: inner.location,
+        ready: inner.ready,
+        allowConcurrentSnapshots: inner.allowConcurrentSnapshots,
+        hasVector: inner.hasVector,
+        transaction: (kind, work, options) => inner.transaction(kind, work, options),
+        run: (work) => inner.run(work),
+        exec: (text) => inner.exec(text),
+        onClose: (work) => inner.onClose(work),
+        close: async () => { beforeSettlement.arrive(); await beforeSettlement.released; await inner.close(); },
+      };
+      return runOwner;
+    },
+  });
   try {
-    let alive = false;
-    for (let waited = 0; waited < 100 && !alive; waited += 1) {
-      await Bun.sleep(20);
-      alive = await held();
-    }
-    expect(alive).toBe(true);
-    // The claim survives the cleanup that outlives it today: several write transactions with nothing else touching it.
-    for (let step = 0; step < 5; step += 1) {
-      await owner.transaction('write', async (tx) => { await tx.query(`SELECT 1`); });
-      await Bun.sleep(30);
-    }
-    expect(await held()).toBe(true);
+    // A refresh during setup: the run has not started, so nothing but the role's own beat can touch this claim. The
+    // queue lets a claim untouched for 30 s be handed to its next attempt, and the beat is what says this one is alive —
+    // so a still-active claim past that window, with a newer touch, is the attempt keeping its own job.
+    await duringSetup.arrived;
+    const claimed = await job();
+    if (claimed === undefined) throw new Error('the role claimed no fill-runs job');
+    expect(claimed).toMatchObject({ state: 'active', attempt: 0 });
+    await Bun.sleep(33_000);
+    const refreshed = await job();
+    expect(refreshed).toMatchObject({ id: claimed.id, state: 'active', attempt: 0 });
+    expect(refreshed?.beat).not.toBe(claimed.beat);
+    expect(await holds(refreshed!)).toBe(true);
+    duringSetup.release();
+
+    // A refresh after the run's own heartbeat stopped and while the queue's settlement is still owed: its end is written,
+    // the run's heartbeat went with its service, and this claim is still whole past the same 30 s window.
+    await beforeSettlement.arrived;
+    expect(await readFillEnd(owner, started.runId)).not.toBeNull();
+    const ended = await job();
+    await Bun.sleep(33_000);
+    const stillHeld = await job();
+    expect(stillHeld).toMatchObject({ id: claimed.id, state: 'active', attempt: 0 });
+    expect(stillHeld?.beat).not.toBe(ended?.beat);
+    expect(await holds(stillHeld!)).toBe(true);
+    beforeSettlement.release();
+
+    // Released, the attempt that still holds the claim settles it: the real queue completes this attempt — it does not
+    // hand the job to a retry of a claim that went quiet during the cleanup.
+    let settled = await job();
+    for (let waited = 0; settled?.state !== 'completed' && waited < 120; waited += 1) { await Bun.sleep(100); settled = await job(); }
+    if (settled?.state !== 'completed') throw new Error(`the attempt that held the claim settled nothing: the job stands ${JSON.stringify(settled)}; the fill role says: ${roleLog.slice(-6).join(' | ')}`);
+    expect(settled).toMatchObject({ id: claimed.id, state: 'completed', attempt: 0 });
+    done = true;
+    await press.settled();
+    expect((await press.status()).fill.state).toBe('done');
   } finally {
-    await heartbeat.stop();
+    // The role is let go of whatever happened, and neither of its two waits can hold the file's cleanup: a case that fails
+    // above is still a case that ends.
+    done = true;
+    duringSetup.release();
+    beforeSettlement.release();
+    await Promise.race([press.settled().catch(() => undefined), Bun.sleep(10_000)]);
+    await Promise.race([role.catch(() => undefined), Bun.sleep(20_000)]);
   }
-  // The beat is the attempt's own: settled or stopped, nothing touches the job again, so the queue decides who holds it.
-  const after = await beatOf();
-  await Bun.sleep(300);
-  expect(await beatOf()).toBe(after);
-}), 120_000);
+}), 300_000);

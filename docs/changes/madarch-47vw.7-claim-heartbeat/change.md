@@ -47,6 +47,16 @@ parts of the fill's own bookkeeping change, and nothing else does.
 - **A redelivery whose product cannot be read writes its end only as the claim's
   holder.** That path published an end before asking anything; it now asks the queue
   first, so a stale attempt leaves the end to the attempt that holds the job.
+- **The regression is observed through the role, not asked of a helper.**
+  `test/fill-run-recovery.test.ts` presses one live queued `KnowledgeProduct`, drives the
+  real `runFillRole`, and holds it at two moments: the run's store opening, before the run
+  has a heartbeat of its own, and the run's owner closing, after that heartbeat stopped and
+  with the queue's settlement still owed. At each it reads the claim from the queue itself
+  and requires it to be this attempt's — still `active`, untouched by a retry, and past
+  the 30 s a claim lives without a touch. Released, the role settles and the queue
+  completes the same attempt, never a retry of it. Deleting the role's beat, leaving it
+  only beside `service.run`, or stopping it once the run's end is published each fails the
+  case.
 
 ## Rationale
 
@@ -110,3 +120,6 @@ None.
   throwing.
 - The fill role keeps serving after a lapsed settlement and after an unexpected error
   in one job, and the same role carries the run on under the queue's next attempt.
+- The queue still holds the attempt that claimed a pressed fill across its setup, its run
+  and the time after the run's own heartbeat stopped, and it completes that attempt once
+  the role settles it.
