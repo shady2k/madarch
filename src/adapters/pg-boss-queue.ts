@@ -118,6 +118,27 @@ function reasonOf(output: object | null): string | null {
   return null;
 }
 
+/**
+ * Whether a queue still holds an unfinished job for one singleton key, read on an executor the caller already holds: a
+ * caller standing in its own write transaction asks the question there, because the store's owner refuses a statement
+ * outside the transaction it already gave out, and that fence is where the answer about ownership is taken (ALX-2024).
+ */
+export async function holdsUnfinishedIn(
+  executor: Pick<OuterTransaction, 'query'>,
+  options: { readonly queue: string; readonly singletonKey: string; readonly schema?: string },
+): Promise<boolean> {
+  return await withSpan('queue.holds-unfinished', { 'madarch.queue': options.queue }, async () => {
+    // `state` is pg-boss's own enum, declared created, retry, active, completed, cancelled, failed, so
+    // `state <= 'active'` is exactly the predicate its exclusive index reads: the key is held while a job
+    // of it is created, waiting or claimed.
+    const held = await executor.query<{ held: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM ${options.schema ?? DEFAULT_QUEUE_SCHEMA}.job WHERE name = $1 AND COALESCE(singleton_key, '') = $2 AND state <= 'active') AS held`,
+      [options.queue, options.singletonKey],
+    );
+    return held.rows[0]?.held === true;
+  });
+}
+
 class PgBossQueue implements QueueService {
   private readonly declared = new Map<string, QueueDeclaration>();
   private stopping: Promise<void> | undefined;
@@ -348,19 +369,8 @@ class PgBossQueue implements QueueService {
     if (singletonKey === '') {
       raise(`the read of the unfinished jobs of the queue "${queue}" named an empty singleton key: the queue folds an empty key with no key at all, so the answer would be about every job of the queue`);
     }
-    return await withSpan('queue.holds-unfinished', { 'madarch.queue': queue }, async () => {
-      // `state` is pg-boss's own enum, declared created, retry, active, completed, cancelled, failed, so
-      // `state <= 'active'` is exactly the predicate its exclusive index reads: the key is held while a job
-      // of it is created, waiting or claimed.
-      const read = async (executor: Pick<OuterTransaction, 'query'>): Promise<boolean> => {
-        const held = await executor.query<{ held: boolean }>(
-          `SELECT EXISTS(SELECT 1 FROM ${this.schema}.job WHERE name = $1 AND COALESCE(singleton_key, '') = $2 AND state <= 'active') AS held`,
-          [queue, singletonKey],
-        );
-        return held.rows[0]?.held === true;
-      };
-      return transaction === undefined ? await this.owner.transaction('snapshot', read) : await read(transaction);
-    });
+    const read = async (executor: Pick<OuterTransaction, 'query'>): Promise<boolean> => await holdsUnfinishedIn(executor, { schema: this.schema, queue, singletonKey });
+    return transaction === undefined ? await this.owner.transaction('snapshot', read) : await read(transaction);
   }
 
   async heartbeat(queue: string, job: ClaimedJob): Promise<boolean> {

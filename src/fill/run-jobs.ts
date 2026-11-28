@@ -6,10 +6,10 @@
  * adapter), and the singleton key holds one unfinished job per product, so a second press while a run is under way
  * creates nothing.
  */
-import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA } from '../adapters/pg-boss-queue.js';
+import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA, holdsUnfinishedIn } from '../adapters/pg-boss-queue.js';
+import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
-import { RUN_JOB_LEASE_SECONDS } from './orchestrator-host.js';
-import { RUN_JOB_HEARTBEAT_SECONDS } from './queue-limits.js';
+import { RUN_JOB_HEARTBEAT_SECONDS, RUN_JOB_LEASE_SECONDS } from './queue-limits.js';
 import type { ClaimedJob, EnqueueResult, FailOutcome, QueueService } from './queue.js';
 
 /** The queue one product's fill requests wait in, at the product's store database: its claim is the run's lock. */
@@ -83,6 +83,39 @@ export async function claimFillRun(queue: QueueService): Promise<ClaimedJob<Fill
     const claimed = await queue.claim<FillRunJob>({ queue: FILL_RUN_QUEUE, limit: 1 });
     return claimed[0] ?? null;
   });
+}
+
+/**
+ * Whether a process still holds this product's fill: its `fill-runs` job is unfinished, which is the queue's own proof
+ * that an attempt was asked for the product and drives its run — even while the run plans, or between two units, when no
+ * row of the run's own moves (ALX-2024, ALX-2026 finding 5). The queue's sweep runs first, so the claim of a process that
+ * died is handed back to its retry instead of holding the product for its lease's whole day, and a live claim survives
+ * the sweep; a job that waits for its retry is an attempt still owed to the run, so it holds it too. `null` is no answer: the
+ * queue could not be opened, declared or read, which proves nothing either way about the run.
+ */
+export async function fillRunHeldElsewhere(owner: QueueOwner, productFolder: string, transaction?: OuterTransaction): Promise<boolean | null> {
+  // Inside the caller's transaction the store's owner refuses a statement outside it, so the queue's own table is read
+  // through that transaction: the fence that serialises the run's writes is where the ownership question is answered
+  // (ALX-2024). A read that fails there is still no answer rather than proof of abandonment.
+  if (transaction !== undefined) {
+    try {
+      return await holdsUnfinishedIn(transaction, { queue: FILL_RUN_QUEUE, singletonKey: productFolder });
+    } catch {
+      return null;
+    }
+  }
+  // A queue this process cannot open or declare is a question it cannot answer: `false` here would read as "no attempt
+  // holds the run" and let a direct caller end a live one (ALX-2026 finding 5).
+  const queue = await openFillRunQueue(owner).catch(() => undefined);
+  if (queue === undefined) return null;
+  try {
+    await queue.recover(FILL_RUN_QUEUE).catch(() => undefined);
+    return await queue.holdsUnfinished(FILL_RUN_QUEUE, productFolder);
+  } catch {
+    return null;
+  } finally {
+    await queue.stop().catch(() => undefined);
+  }
 }
 
 /**

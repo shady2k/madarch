@@ -28,7 +28,7 @@ import { failRequestedFill, readProgress, writeFillEndIfAbsent } from '../graph/
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
 import { advanceRun, createRun, readChain, readRun } from '../graph/fill-state.js';
 import { failAndSettleRun, lastRunActivityAt, RUN_ORPHAN_AFTER_MS, TERMINAL_RUN_STATES, type RunCleanupContext, type RunClaim } from '../fill/orchestrator.js';
-import { FILL_RUN_QUEUE, openFillRunQueue } from '../fill/run-jobs.js';
+import { fillRunHeldElsewhere } from '../fill/run-jobs.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
@@ -151,6 +151,11 @@ export interface KnowledgeFillResult {
    * standing, its claim is retried, and its end is the next attempt's or the one that gives up (ALX-2024).
    */
   readonly retryable?: boolean;
+  /**
+   * The refusal's own code, when the run refused before it could be driven: `fill-orchestrator/claim-lapsed` names a run
+   * the queue has already handed to another attempt, whose breach of ownership this one published nothing about.
+   */
+  readonly code?: string;
 }
 
 /** One fill of a knowledge store, as the host drives it and a person controls it. */
@@ -226,22 +231,14 @@ export async function finishKnowledgeStore(owner: StoreOwner, declared?: Readonl
 }
 
 /**
- * Whether another process still holds this product's fill: its `fill-runs` job is unfinished, which is the queue's own
- * proof that a process was asked for the run and holds it — so the run it drives is alive even when nothing moved for the
- * recovery window (ALX-2024, ALX-2026 finding 1). A press that holds its own claim has that proof already: the queue's
- * singleton key forbids a second unfinished job for the product.
+ * Whether another process still holds this product's fill: the product's `fill-runs` job is unfinished, which is the
+ * queue's own proof that a process was asked for the run and drives it even when no row of the run's own moved (ALX-2024,
+ * ALX-2026 finding 1). A press that holds its own claim has that proof already: the queue's singleton key forbids a second
+ * unfinished job for the product. A store whose queue cannot be read says nothing it cannot say: the recovery window decides.
  */
 async function claimedElsewhere(owner: StoreOwner, productFolder: string, claim: RunClaim | undefined): Promise<boolean> {
   if (claim !== undefined) return false;
-  const queue = await openFillRunQueue(owner).catch(() => undefined);
-  if (queue === undefined) return false;
-  try {
-    return await queue.holdsUnfinished(FILL_RUN_QUEUE, productFolder);
-  } catch {
-    return false; // a store whose queue cannot be read says nothing it cannot say: the recovery window decides
-  } finally {
-    await queue.stop().catch(() => undefined);
-  }
+  return (await fillRunHeldElsewhere(owner, productFolder)) === true;
 }
 
 /**
@@ -342,7 +339,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
           }
           recordEnd = false;
-          return { ok: false, state: 'failed', refused: true, message, units: 0 };
+          return { ok: false, state: 'failed', refused: true, message, units: 0, ...(result.code === undefined ? {} : { code: result.code }) };
         }
         // The run's own durable events name why a unit did not publish: the stage's error, with the
         // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).

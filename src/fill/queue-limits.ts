@@ -3,6 +3,9 @@ import { DEFAULT_HOST_LIMITS } from '../plugin/host-limits.js';
 /** How long the queue allows silence between run or unit claim heartbeats. */
 export const RUN_JOB_HEARTBEAT_SECONDS = 30;
 
+/** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
+export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
+
 /**
  * Covers the plugin host's runBound (src/plugin/host.ts:912): max(runMs, agentUnitMs + 60 s),
  * plus its handshake and five minutes for orchestration. Heartbeat checks liveness, not this ceiling.

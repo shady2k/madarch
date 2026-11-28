@@ -53,7 +53,15 @@ with no end at all. Two causes, one part of the patch each.
   failed before it built its service published no end at all (a run already `planning`
   or `running` takes none from `failRequestedFill`), so the queue's next attempts carry
   the run and the last one ends it, instead of a completed job leaving the press waiting
-  for an end no process writes.
+  for an end no process writes. An attempt whose claim lapsed settles nothing at all: it
+  neither masks the end the new owner writes nor takes the job from it.
+- **A direct caller asks the product's queue, not only the run's rows.** Recovery is where
+  a run nothing moved for the window is ended, and it now asks whether the product's
+  `fill-runs` job still holds the run (`fillRunHeldElsewhere`, read after the queue's own
+  sweep): `madarch fill` and the daemon's inline press hold no claim of their own and never
+  reach the press's earlier check, so a healthy claim with no unit in flight used to lose
+  its run to them. The answer is asked again inside every write-locked step (`eligible`),
+  and a queue that cannot be opened or read counts as held.
 - **A request refused at admission ends too.** A press the product refuses because another
   run still holds the chain records its own end, so the pressing page answers rather than
   waiting behind a run that never started.
@@ -76,7 +84,7 @@ and the owner's, on the preserved stand.
 - fill-orchestrator/plan: a plan that refuses or finds a unit another run works ends the run with the refusal named, and the graph it read stays readable.
 - fill-orchestrator/attempt: a unit's lease and fencing token are what decide whether its worker may publish, and this part only asks the queue whether such a lease stands.
 - fill-orchestrator/host: the host drives an attempt and stops its heartbeat when the attempt returns, whichever way it returns.
-- fill-orchestrator/recovery: a run nothing moved for `RUN_ORPHAN_AFTER_MS` whose unfinished unit jobs the queue no longer holds is recoverable, and that proof is taken under the run's write fence.
+- fill-orchestrator/recovery: a run nothing moved for `RUN_ORPHAN_AFTER_MS` whose unfinished unit jobs and whose product's `fill-runs` job the queue no longer holds is recoverable, and that proof is taken under the run's write fence.
 - fill-queue/claim: the `fill-runs` job is the run's lock, its claim is the attempt's, and a claim that lapsed belongs to whoever holds it now.
 - fill-queue/fail: a failed attempt is retried by the queue while it has attempts left, and a job whose attempts are spent leaves the run ended rather than waiting.
 - fill-queue/heartbeat: a claim is kept alive only by the attempt that drives the run it names.
@@ -114,7 +122,10 @@ None.
   fill afterwards without a restart.
 - A retried `fill-runs` job drives the run it names to that run's own end.
 - A run that published or moved inside the recovery window, or whose outstanding unit job
-  the queue still holds, is not recovered by another caller, and a queue read that fails
-  is no proof of abandonment.
+  or product `fill-runs` job the queue still holds, is not recovered by another caller, and a
+  queue that cannot be opened or read is no proof of abandonment.
+- A direct caller (`madarch fill`, the daemon's inline press) leaves a run the product's
+  `fill-runs` job still holds as it stands — its state and its missing end — and ends it only
+  once the queue holds no attempt for it.
 - A job settled done carries a run whose end a press can read: an attempt that published
   no end leaves its job to the queue's next attempt, and the last attempt ends the run.

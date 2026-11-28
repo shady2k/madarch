@@ -15,12 +15,14 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import type { OuterTransaction } from '../history-types.js';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { unitJobAttemptSeconds } from './queue-limits.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
+import { fillRunHeldElsewhere } from './run-jobs.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import {
@@ -158,9 +160,6 @@ export interface FillOrchestratorServiceOptions {
 
 /** The units' queue's name in the process's database. */
 const DEFAULT_FILL_QUEUE = 'fill-units';
-
-/** pg-boss's maximum run attempt and liveness bounds; no engine-owned lease table. */
-export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly (UnitState | 'superseded')[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
@@ -351,7 +350,16 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       // refused or given up — leaves a claim that is no longer this process's to keep alive (ALX-2024).
       try {
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId, ...(request.claim === undefined ? {} : { claim: request.claim }) }));
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, {
+        runId: request.runId,
+        ...(request.claim === undefined ? {} : { claim: request.claim }),
+        // A run this process drives without a `fill-runs` job of its own — `madarch fill` and the daemon's inline press —
+        // takes the chain from another run only when the product's queue holds no attempt for it: the queue's claim is
+        // the proof a run that published nothing for the recovery window is still driven (ALX-2024, ALX-2026 finding 5).
+        ...(request.claim === undefined
+          ? { heldByQueue: async (transaction?: OuterTransaction) => await fillRunHeldElsewhere((await open()).owner, request.product.folder, transaction) }
+          : {}),
+      }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
         const held = await planRun(orchestrator, { runId: request.runId });
