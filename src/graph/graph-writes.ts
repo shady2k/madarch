@@ -18,7 +18,7 @@ import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { semanticBinding } from '../knowledge/semantic-bindings.js';
-import { resolveEntityRef, publishGraphDrafts } from './write.js';
+import { resolveEntityRef, publishGraphDrafts, fieldScansMentions } from './write.js';
 import { readKindAssertions } from './records.js';
 import { newUid } from './uid.js';
 import { scanMentionHints, type MentionCandidate, type MentionHint } from './mentions.js';
@@ -252,8 +252,18 @@ async function manifestOf(tx: OuterTransaction): Promise<KindsManifest> {
   return manifest;
 }
 
-/** Names come only from the manifest's declared page-title field, never a guessed field name. */
-async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contract: GraphContract, values: unknown): Promise<MentionHint[]> {
+/** The values of the fields a write reads as authored prose: the rest are immutable bytes and the engine's words. */
+function authoredOnly(contract: GraphContract, kindName: string, values: unknown): unknown {
+  if (values === null || typeof values !== 'object' || Array.isArray(values)) return values;
+  const kind = contract.vertex.find(candidate => candidate.name === kindName) ?? contract.edge.find(candidate => candidate.name === kindName);
+  return Object.fromEntries(Object.entries(values as Record<string, unknown>).filter(([field]) => fieldScansMentions(kind, field)));
+}
+
+/**
+ * Names come only from the manifest's declared page-title field, never a guessed field name, and only from authored
+ * text: an immutable evidence payload and an engine field suggest nothing (madarch-47vw.9).
+ */
+async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contract: GraphContract, kindName: string, values: unknown): Promise<MentionHint[]> {
   const dictionary = new Map<string, MentionCandidate[]>();
   const cutoff = (await withSpan('graph.graph-writes.writeHints', { 'db.system': 'postgres' }, async () => await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now'))).rows[0]!.now;
   for (const kind of manifest.kinds.values()) {
@@ -286,7 +296,7 @@ async function writeHints(tx: OuterTransaction, manifest: KindsManifest, contrac
     }
     return leftKey.length - rightKey.length;
   });
-  return scanMentionHints(values, '', dictionary);
+  return scanMentionHints(authoredOnly(contract, kindName, values), '', dictionary);
 }
 
 /** Puts the agent's opinion of an entity's fields, creating the entity when its key names none. */
@@ -335,7 +345,7 @@ export async function putEntityAssertion(tx: OuterTransaction, source: WriteSour
     const { draft } = entityDraft(contract, { kind: input.kind, key, keyEdges: input.keyEdges, values: input.values, ...(writeUid === undefined ? {} : { uid: writeUid }) }, source, evidence);
     const written = await publishGraphDrafts(tx, contract, { vertices: [draft], edges: (input.edges ?? []).map(edge => edgeDraft(contract, edge, source, evidence)), removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
     const uid = (await resolveEntityRef(tx, contract, draft, 1)).uid;
-    return { kind: input.kind, key: draft.key as Record<string, unknown>, ...(uid === undefined ? {} : { uid }), written, hints: await writeHints(tx, manifest, contract, { ...draft.key, ...draft.values }) };
+    return { kind: input.kind, key: draft.key as Record<string, unknown>, ...(uid === undefined ? {} : { uid }), written, hints: await writeHints(tx, manifest, contract, input.kind, { ...draft.key, ...draft.values }) };
 }
 
 /** One end of an edge, named by {kind, key} or {kind, id}. */
@@ -368,7 +378,7 @@ export async function putEdgeAssertion(tx: OuterTransaction, source: WriteSource
     const to = await edgeEndOf(tx, contract, 'to', input.to);
     const draft = edgeDraft(contract, { kind: input.kind, from, to, ...(input.discriminator === undefined ? {} : { discriminator: input.discriminator }), ...(input.values === undefined ? {} : { values: input.values }) }, source, evidence);
     const written = await publishGraphDrafts(tx, contract, { vertices: [], edges: [draft], removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
-    return { kind: input.kind, written, hints: await writeHints(tx, manifest, contract, draft.values ?? {}) };
+    return { kind: input.kind, written, hints: await writeHints(tx, manifest, contract, input.kind, draft.values ?? {}) };
 }
 
 /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */

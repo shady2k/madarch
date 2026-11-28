@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { MentionSyntaxError, scanMentionHints, scanMentions } from '../src/graph/mentions';
+import { fieldScansMentions } from '../src/graph/write';
 
 const uid = '12345678-1234-5678-9abc-123456789abc';
 const token = `[[uid:${uid}]]`;
@@ -88,5 +89,35 @@ describe('decision 0039 items 5 and 29 mention grammar', () => {
     expect(scanMentionHints(`\\[[Payments ] Payments]] Payments`, '/body', dictionary)).toEqual([{path: '/body', start: 25, end: 33, candidates}]);
     expect(scanMentionHints(value, '/body', new Map())).toEqual([]);
     expect(scanMentionHints({ list: ['Payments'] }, '/payload', dictionary)).toEqual([{path: '/payload/list/0', start: 0, end: 8, candidates}]);
+  });
+});
+
+describe('decision 0039 items 5, 29 and 31: which payloads a write scans for mentions', () => {
+  const kind = (overrides: Record<string, unknown>) => ({
+    name: 'fixture', table: 'k_fixture', key: [], capability: 'fixture',
+    fields: [{ name: 'title', type: 'text' as const }, { name: 'content', type: 'text' as const }, { name: 'summary', type: 'text' as const, mentions: false as const }],
+    ...overrides,
+  });
+
+  test('authored fields are scanned and engine fields are not', () => {
+    const declared = kind({});
+    expect(fieldScansMentions(declared, 'title')).toBe(true);
+    expect(fieldScansMentions(declared, 'summary')).toBe(false);
+    // A property the kind does not declare is read as prose: the write refuses it by name, never by silence.
+    expect(fieldScansMentions(declared, 'undeclared')).toBe(true);
+    expect(fieldScansMentions(undefined, 'title')).toBe(true);
+  });
+
+  test('an immutable evidence kind scans nothing in its content field', () => {
+    const declared = kind({ evidence: { immutable: true as const, digestField: 'digest', contentField: 'content', digestAlgorithm: 'sha256' as const } });
+    expect(fieldScansMentions(declared, 'content')).toBe(false);
+    // The exemption is the content field alone: the kind's other payloads are still authored prose.
+    expect(fieldScansMentions(declared, 'title')).toBe(true);
+  });
+
+  test('an edge kind keeps its authored fields and takes no evidence exemption', () => {
+    const edge = { name: 'fixture-edge', from: ['fixture'], to: ['fixture'], fields: [{ name: 'words', type: 'text' as const }], repeats: false, capability: 'fixture', cardinality: { from: 'many' as const, to: 'many' as const }, labels: { en: { out: 'a', in: 'a' }, ru: { out: 'а', in: 'а' } } };
+    expect(fieldScansMentions(edge, 'words')).toBe(true);
+    expect(fieldScansMentions({ ...edge, fields: [{ name: 'words', type: 'text' as const, mentions: false as const }] }, 'words')).toBe(false);
   });
 });

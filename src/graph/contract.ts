@@ -53,6 +53,12 @@ export interface FieldContract {
    * reading every subject of the kind.
    */
   readonly lookup?: boolean;
+  /**
+   * Whether a write reads this field's text as authored graph prose and so scans it for mention tokens (0039 items 5
+   * and 29, `madarch-47vw.9`). A field the engine writes states its exact words — a refusal quotes the reserved token
+   * it refused — so it declares `false`; an authored field omits it and is scanned.
+   */
+  readonly mentions?: false;
 }
 
 /** A dictionary holds each value once, with its own natural key. */

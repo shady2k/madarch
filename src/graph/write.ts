@@ -17,6 +17,22 @@ const WHERE=import.meta.path;
 // New assertions default to the transaction start, even if the wall clock moves backward.
 const ENDPOINT_VALIDATION_INSTANT='greatest(clock_timestamp(),transaction_timestamp())';
 
+/** A kind whose fields a write may scan for mention tokens, as the writer declares them. */
+interface MentionFieldKind {readonly name:string;readonly fields:readonly FieldContract[];readonly evidence?:VertexContract['evidence']}
+/**
+ * Whether a write reads a field as authored graph prose and so scans it for mention tokens (0039 items 5 and 29, the
+ * boundary of `madarch-47vw.9`). Two payloads are not authored prose: immutable evidence content, whose exact bytes
+ * its digest answers for, and a field the engine writes (`mentions: false`), whose words are the engine's own — the
+ * refusal of an authored mention quotes the reserved token, and recording that quote is not another authored write.
+ * A kind the contract does not declare is not exempt: the write refuses it by name and its text is read as prose.
+ */
+export function fieldScansMentions(kind:MentionFieldKind|undefined,fieldName:string):boolean{
+ if(kind===undefined)return true;
+ if(kind.fields.some(field=>field.name===fieldName&&field.mentions===false))return false;
+ const evidence=kind.evidence;
+ return !(evidence?.immutable===true&&evidence.contentField===fieldName);
+}
+
 interface ImmutableVertex extends Record<string,unknown> {
  id:string;uid:string;kind:string;key:Record<string,unknown>;scope:string;
  parents:{kind:string;uid:string;edge:string;direction:string}[];
@@ -353,7 +369,8 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
   if(!contract.vertex.find(kind=>kind.name===evidence.target.kind)?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);
   references.set(evidence,await refUid(executor,contract,await storedReference(executor,contract,evidence.target),context));
  }
- const mentions=inputs.flatMap(input=>input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]);
+ const scannedMentions=(input:AssertionInput):ReturnType<typeof scanMentions>=>input.operation==='assert'&&fieldScansMentions(contract[input.sort].find(kind=>kind.name===input.kind),input.property)?scanMentions(input.value,`/values/${input.property}`):[];
+ const mentions=inputs.flatMap(input=>scannedMentions(input));
  const requested=[binding.sourceUid,binding.principalUid,binding.operationUid,...(binding.unitUid?[binding.unitUid]:[]),...mentions.map(mention=>mention.uid),...references.values()];
  const held=(await executor.query<BatchNode>(`SELECT n.id::text,n.uid::text,k.name AS kind,n.key,n.identity_scope::text AS scope FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=ANY($1::uuid[]) OR n.id=ANY($2::bigint[]) ORDER BY n.id FOR UPDATE OF n`,[requested,inputs.filter(input=>input.sort==='vertex').map(input=>input.subjectId)])).rows;
  const nodes=new Map(held.map(node=>[node.uid,{...node,parents:[]}]));
@@ -366,7 +383,7 @@ async function admitAssertionInputs(executor:SqlExecutor,declared:GraphContract,
   const edge=input.sort==='edge'?edgesById.get(input.subjectId):undefined;
   if((node??edge)?.kind!==input.kind)throw new Error(`${WHERE}:114: END_KIND_INVALID assertion subject ${input.subjectId}`);
   if(edge)subjectNodes.push(edge.from,edge.to);else subjectNodes.push(input.subjectId);
-  for(const mention of input.operation==='assert'?scanMentions(input.value,`/values/${input.property}`):[]){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${input.kind} ${mention.uid}`);needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:'TARGET_MISSING'});}
+  for(const mention of scannedMentions(input)){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${input.kind} ${mention.uid}`);needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:'TARGET_MISSING'});}
   for(const evidence of input.evidence??[]){const uid=references.get(evidence)!,node=nodes.get(uid);if(!node||node.kind!==evidence.target.kind)throw new Error(`${WHERE}:73: MISSING_ENDPOINT ${evidence.target.kind} ${uid}`);needActive.set(uid,{uid,kind:node.kind,error:'MISSING_ENDPOINT'});}
  }
  await checkBatchActivity(executor,needActive,context,nodes);
@@ -399,7 +416,8 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
  for(const draft of drafts.edges??[]){await collect(draft.from);await collect(draft.to);}
  for(const draft of drafts.vertices)for(const evidence of draft.evidence??[])await collect(evidence.target);
  for(const draft of drafts.edges??[])for(const evidence of draft.evidence??[])await collect(evidence.target);
- const mentions=drafts.vertices.flatMap(draft=>[...Object.values(draft.key),...Object.values(draft.values??{})].flatMap(value=>scanMentions(value,''))).concat((drafts.edges??[]).flatMap(draft=>Object.values(draft.values??{}).flatMap(value=>scanMentions(value,''))));
+ const scannedFields=(kind:MentionFieldKind|undefined,values:Readonly<Record<string,unknown>>|undefined)=>Object.entries(values??{}).flatMap(([field,value])=>fieldScansMentions(kind,field)?scanMentions(value,''):[]);
+ const mentions=drafts.vertices.flatMap(draft=>{const kind=kinds.get(draft.kind);return [...scannedFields(kind,draft.key),...scannedFields(kind,draft.values)];}).concat((drafts.edges??[]).flatMap(draft=>scannedFields(contract.edge.find(kind=>kind.name===draft.kind),draft.values)));
  const requested=new Set<string>([...vertexUids,...mentions.map(mention=>mention.uid)]);
  for(const ref of references)requested.add(ref.uid!==undefined&&Object.keys(ref.key).length===0&&ref.keyEdges===undefined?ref.uid:await refUid(executor,contract,ref,context));
  await acquireGraphWriteLock(executor);
@@ -504,7 +522,7 @@ async function publishBatch(executor:SqlExecutor,prepared:PreparedContract,draft
   for(const [property,value] of Object.entries(draft.values??{})){plans.push({...common,property,value,language:draft.lang});written++;}
  }
  for(const plan of plans){
-  for(const mention of scanMentions(plan.value,`/values/${plan.property.split('~').join('~0').split('/').join('~1')}`)){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);if(!(activeBirths.has(node.uid)))needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:`TARGET_MISSING ${mention.path}`});}
+  for(const mention of fieldScansMentions(contract[plan.sort].find(kind=>kind.name===plan.kind),plan.property)?scanMentions(plan.value,`/values/${plan.property.split('~').join('~0').split('/').join('~1')}`):[]){const node=nodes.get(mention.uid);if(!node)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);if(!(activeBirths.has(node.uid)))needActive.set(node.uid,{uid:node.uid,kind:node.kind,error:`TARGET_MISSING ${mention.path}`});}
   for(const evidence of plan.evidence??[]){try{validateEvidenceLocator(evidence.locator??{});if(!kinds.get(evidence.target.kind)?.evidence?.immutable)throw new Error(`${WHERE}:151: EVIDENCE_INVALID target must declare immutable evidence support`);await getEndpoint(evidence.target);}catch(error){throw new Error(`${String(error)}; subject ${plan.kind} ${[...nodes.values()].find(node=>node.id===plan.subjectId)?.uid??plan.subjectId}`);}}
  }
  const edgeRows=edgeInputs.length?(await executor.query<{id:string;uid:string}>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
@@ -577,7 +595,7 @@ async function insertBatchAssertions(executor:SqlExecutor,prepared:PreparedContr
    if(input.operation!=='assert'||input.language!=null||!sameValue(nodeIds.get(input.subjectId)!.key[input.property],input.value))throw new Error(`${WHERE}:165: IMMUTABLE_KEY ${input.kind}.${input.property}: identity changes require a new UID`);
   }
   if(input.operation==='assert'){validate(field,input.value);validateFieldValue(contract,field,input.value);}else if(input.value!==undefined)throw new Error(`${WHERE}:117: RETRACTION_VALUE`);
-  return {...input,uid:newUid(),field,mentions:scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`)};
+  return {...input,uid:newUid(),field,mentions:fieldScansMentions(kind,input.property)?scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[]};
  });
  const tables=new Map<string,{kind:string;sort:'vertex'|'edge';property:string;inputs:BatchAssertion[]}>();
  const slots=new Map<string,string>();
@@ -725,7 +743,7 @@ export async function publishGraphDrafts(executor:SqlExecutor,declared:GraphCont
   for(const name of kind.key)permitted(binding,contract,draft.kind,name);
   for(const name of Object.keys(draft.values??{}))permitted(binding,contract,draft.kind,name);
   for(const evidence of draft.evidence??[])validateEvidenceLocator(evidence.locator??{});
-  for(const value of Object.values(draft.values??{}))scanMentions(value,'/values');
+  for(const [property,value] of Object.entries(draft.values??{}))if(fieldScansMentions(kind,property))scanMentions(value,'/values');
  }catch(error){if(error instanceof Error){error.message+=`; subject ${draft.kind} ${draft.uid??canonicalJson(draft.key)}`;throw error;}throw error;}}
  for(const draft of drafts.edges??[]){const kind=contract.edge.find(kind=>kind.name===draft.kind);if(!kind)throw new Error(`${WHERE}:198: UNKNOWN_EDGE ${draft.kind}`);checkRef(draft.from);checkRef(draft.to);checkFields(kind,draft.values??{});}
  let written=await publishBatch(executor,prepared,drafts,context);
