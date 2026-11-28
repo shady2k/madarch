@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import { Type, type Static } from 'typebox';
 import { agentExchangeFolder, AgentExchangeRecorder } from '../fill/agent-exchange.js';
@@ -26,7 +25,13 @@ type AgentExtraction = Static<typeof AgentExtraction>;
 
 import { catalogueFileTextRole, type FileTextRole } from '../knowledge/file-text-kind.js';
 
-const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
+/**
+ * Where this module's own failures stand: its source path, never the path of the file the engine was
+ * bundled into. A packaged binary's `import.meta.url` is `/$bunfs/root/<binary>` (madarch-64o5.200),
+ * and a reader of the run's journal or of its logs is shown the source the failure names, not the
+ * bundle the engine happens to be shipped in.
+ */
+const WHERE = 'src/plugin/agent.ts:1';
 
 export interface PluginAgentReport {
   readonly unitId: string;

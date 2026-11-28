@@ -125,6 +125,37 @@ describe('every log in one read', () => {
   });
 });
 
+/**
+ * The packaged engine's own locations never reach the reader (madarch-64o5.200): on a shipped binary every engine frame
+ * and every `import.meta.url` is `/$bunfs/root/madarch-linux-x64`, and the owner's acceptance read the run's journal,
+ * the extract-failed row and the opened stack of the fill-failed row. The words the failure carries stay; the bundle's
+ * own offsets go, because a reader can open no line of them. The file on disk keeps them as evidence.
+ */
+test('a packaged record is shown without the engine\'s own locations and keeps the failure\'s words', () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-logs-packaged-'));
+  roots.push(root);
+  const knowledgeRoot = join(root, 'knowledge');
+  const store = join(knowledgeRoot, 'mini-repo');
+  const traces = join(store, 'traces');
+  mkdirSync(traces, { recursive: true });
+  const bundle = '/$bunfs/root/madarch-linux-x64';
+  const stack = `Error: ${bundle}:87: RUN_NOT_WRITABLE run cancelling unit cancelled\n    at <anonymous> (${bundle}:82276:26)\n    at async withSpan (${bundle}:3229:33)\n    at processTicksAndRejections (native:7:39)`;
+  writeFileSync(join(traces, 'fill-packaged.log.jsonl'), [
+    { time: '2026-11-28T05:24:13.000Z', level: 'error', message: `unit not extracted: src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: ${bundle}: the agent answer is no JSON`, file: `${bundle}:152346:42`, unitId: 'agent-fill:idea', runId: 'fill-packaged' },
+    { time: '2026-11-28T05:24:14.000Z', level: 'error', message: 'fill failed', file: `${bundle}:152346:42`, path: '/work/walk/home/mini-repo', runId: 'fill-packaged', error: { name: 'Error', message: `${bundle}:87: RUN_NOT_WRITABLE run cancelling unit cancelled`, stack } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  const page = readLogs({ store, knowledgeRoot }, { sources: ['fill'], run: 'fill-packaged' });
+  const extracted = page.entries.find((entry) => entry.code === 'unit-not-extracted');
+  expect(extracted?.message).toBe('unit not extracted: src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: the agent answer is no JSON');
+  expect(extracted?.arguments['detail']).toBe('src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: the agent answer is no JSON');
+  const failed = page.entries.find((entry) => entry.code === 'fill-failed');
+  expect(failed?.detail).toBe('RUN_NOT_WRITABLE run cancelling unit cancelled\n    at processTicksAndRejections (native:7:39)');
+  // A context field that held only the bundle's own offset names nothing a reader can use, and the product's path stands.
+  expect(failed?.fields).toEqual({ path: '/work/walk/home/mini-repo', runId: 'fill-packaged' });
+  expect(JSON.stringify(page)).not.toContain('bunfs');
+  expect(JSON.stringify(page)).not.toContain('madarch-linux-x64');
+});
+
 test('every fixed message the engine logs has a code the page words', async () => {
   // The engine's own log calls with a literal message: each must be one the page knows, or a Russian page would show an
   // English sentence. A message built with arguments is a family and is covered by `engineEventOf`'s patterns.

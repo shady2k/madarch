@@ -32,6 +32,25 @@ page's own path through the field. This change carries the correction of all thr
 3. **The lower bound never reached the read.** `from` was handed over as `since`, a name the read's own query does not
    hold, so `from` excluded nothing and answered every record the other filters kept.
 
+**Follow-up, 2026-11-28: the engine's own location in what the reader is shown.** The packaged walk of ALX-2047 on `c94b578ec79346dc003512ab9c1d8c852988a0f9` followed Runs → run → Logs with no HTTP,
+GraphQL or console failure, and found the shipped binary's own path in three texts a reader sees. The run's journal
+cause and the extract-failed row read `src/plugin/agent.ts:1: /$bunfs/root/madarch-linux-x64: the agent answer is no
+JSON`; the fill-failed row's detail opened with `Error: /$bunfs/root/madarch-linux-x64:87: RUN_NOT_WRITABLE run
+cancelling unit cancelled` and named every frame at the bundle's byte offsets; a context field held only
+`/$bunfs/root/madarch-linux-x64:152346:42`. The reproduction and the exact fields are
+`/work/alx2047/lead-followup/raw-path-finding.json` in box `alx1936-accept` (ALX-2047 at `bec7e39f9`).
+
+Three faults, one correction:
+
+1. **The agent bridge named the file it was bundled into, not itself.** `src/plugin/agent.ts:29` built its `WHERE` from
+   `import.meta.url`, which is `/$bunfs/root/madarch-linux-x64` in a compiled binary and the checkout's absolute path otherwise;
+   every failure it raised carried that after its own `src/plugin/agent.ts:1:`, so the journal cause and the
+   extract-failed row carried it too.
+2. **The operation host did the same.** `src/graph/operation-host.ts:17` built its `WHERE` from `new URL(import.meta.url).pathname`, the head of the fill-failed row's detail.
+3. **The Logs read showed the record as the engine wrote it.** `src/knowledge/logs.ts` passed a record's message, its
+   stack and its context fields through untouched, so the bundle's path and its frames reached the page even where the
+   engine's sentence was correct.
+
 ## Out of scope
 
 - The page's own drawing and the kit's log viewer: unchanged, and its tests pass untouched.
@@ -66,6 +85,26 @@ worker built its query under the name `since`, which no field of `LogQuery` hold
 out of TypeScript's excess-property check, so the compiler said nothing and the read dropped the bound. It is `from`
 now, and the boundary stays what it was: `from` exclusive, `before` exclusive, oldest first, the newest page kept.
 
+### The follow-up correction
+
+**The two injections.** Each module now names itself by its source path — `src/plugin/agent.ts:1` and
+`src/graph/operation-host.ts` — as `src/plugin/host.ts`, `src/plugin/sandbox.ts` and `src/adapters/postgres-install.ts`
+already do. The source path and line are what a failure owes a reader; the file the engine was bundled into is a
+deployment detail, and in a compiled binary its line is not a line of any module.
+
+**The read.** `stripEngineLocations()` in `src/server/engine-location.ts` reads a record the engine wrote for a person:
+it takes out every engine location wherever it stands (the head of a message, the field after it, a context value) and
+drops a stack frame that stands only at the engine's bundle — a bundle frame carries no source map, so its line and
+column name an offset in the shipped binary that no reader can open. A frame at the checkout's own source keeps its
+line and column and loses only the folder this machine keeps the checkout in, and a product's or a plugin's location
+stands as written. It is the module's existing normalization (`stripEngineLocation()`, madarch-64o5.203), read over a
+whole text instead of its head, and it reuses that function for the head so the two cannot disagree. `src/knowledge/
+logs.ts` applies it to the message, the stack detail and the context fields of records the engine wrote — engine, fill,
+agent failure, trace status — and not to text it did not write: a plugin's standard error and the store's own
+PostgreSQL log stand as they were written and stay marked quoted. A context field left holding nothing but an engine
+location is left out rather than shown empty. The file on disk is never rewritten: the bundle's path stays in the
+record as the evidence a developer reads with the store.
+
 ## Changes to requirements
 
 None. The change realizes the Logs page's own proposed requirement (`product-wiki/logs`, proposed by change
@@ -75,7 +114,7 @@ paging and an empty state. No requirement text moves.
 ## Preserved contracts
 
 - product-wiki/serve: a served product still answers its wiki's reads through `POST /graphql` by the api role, one operation in its own read-only snapshot answered by the read worker; the page and the route that was already answered are unchanged (static)
-- product-wiki/logs: the window's own meaning is untouched — `from` and `before` are epoch milliseconds, both exclusive, entries oldest first, one page of at most `MAX_PAGE` kept from the newest end (test)
+- product-wiki/logs: the page's entries, filters, paging and order stand, and so do its window's own meaning (`from` and `before` are epoch milliseconds, both exclusive, oldest first, one page of at most `MAX_PAGE` kept from the newest end) and the text madarch did not write, which is shown exactly as it was; an engine record's message, stack and context are shown without an engine location (test)
 
 ## Coverage
 
@@ -172,3 +211,35 @@ shipped it (`$from: Int, $before: Int`, every filter an explicit null):
   here.
 - Review: this correction follows the ALX-2008 verdict (`CHANGES f66b8d72912a671cdefcd22e101b4ec1b61cd4f4`); the lead
   checks the correction diff.
+
+### The follow-up correction
+
+Box `alx1936-accept` (4 vCPU, 8 GiB), a worker checkout of `origin/main` `d08cfb936210952af89eae50098718afef9bdfb4` at
+`/work/correction`, run as the box user. The correction is PR #404, one commit on that base; every line below covers
+that commit, so a later revision's results replace none of them. Errors as the run printed them, with the file, the line
+and the full path.
+
+- **The correction fails on the pre-fix source, on the same tests.** With `git stash push -- src` (the three source
+  files at `d08cfb936`), `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/plugin-agent-bridge.test.ts` — exit 1,
+  20 pass, 2 fail:
+  - `/work/correction/test/plugin-agent-bridge.test.ts:98`: expected `src/plugin/agent.ts:1: the agent answer is no
+    JSON`, received `src/plugin/agent.ts:1: /work/correction/src/plugin/agent.ts: the agent answer is no JSON`.
+  - `/work/correction/test/logs.test.ts:149`: expected `unit not extracted: src/plugin/host.ts:1: agent.run failed:
+    src/plugin/agent.ts:1: the agent answer is no JSON`, received the same with
+    `/$bunfs/root/madarch-linux-x64: ` between `src/plugin/agent.ts:1: ` and the words.
+  - With the same stash, `MADARCH_SKIP_PERF=1 bun test test/immediate-operation.test.ts` — exit 1, 3 pass, 1 fail at
+    `/work/correction/test/immediate-operation.test.ts:56`: expected `/^src\/graph\/operation-host\.ts:87:
+    RUN_NOT_WRITABLE run paused unit running$/u`, received `/work/correction/src/graph/operation-host.ts:87:
+    RUN_NOT_WRITABLE run paused unit running`.
+- **The correction passes.** `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/logs-graphql.test.ts
+  test/plugin-agent-bridge.test.ts test/immediate-operation.test.ts test/wiki-refusal-boundary.test.ts
+  test/entity-cli.test.ts` — exit 0, 37 pass, 0 fail, 386 expect() calls, 15.39 s, the two Logs files among them so the
+  page's own route still reads its entries.
+- **Static:** `bun run check` — exit 0. `tsc --noEmit` clean; `check:architecture` 499 violations, all 499 listed;
+  `check:ui` 0; `check:catalog` no finding; `check:workflows` 4; `check:slow-tests` 66 excluded files, no finding;
+  `check:quarantine`; `check:tests` 0 violations.
+- **Full suite and mutation:** not run, per the card — GitHub CI is the merge check and the card forbids a mutation run.
+- **Walk:** the packaged navigation rerun on the merged correction belongs to ALX-2047; the acceptance target is the
+  merged correction on a packaged binary.
+- **Author:** `shady2k-gateway/deepseek-v4.1-flash-auto` (Pi). No paid model call was made: the agent answer of the
+  regression is the deterministic fixture's own text.
