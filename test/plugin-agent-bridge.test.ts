@@ -22,7 +22,7 @@ const readFile = async (request: { readonly repository: string; readonly blob: s
   return lines.slice(from, request.limit === undefined ? undefined : from + request.limit).join('\n');
 };
 const result: Awaited<ReturnType<PluginAgentBridge['run']>> = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { target: evidenceTarget, path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
-function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs']) {
+function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs'], answerText: (answer: unknown) => string = (answer) => JSON.stringify(answer)) {
   const state = { closed: 0, frozen: 0, thawed: 0 };
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
     adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, readFile,
@@ -37,7 +37,7 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
         setModel: async () => { throw new Error('No fixture models'); },
         cancel: async () => undefined, running: () => false,
         usage: () => ({ reported: false, turns: 1, reports: 0 }),
-        prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 }, stopReason: 'end_turn', text: JSON.stringify(await turn(options, opts?.signal)), updates: [] }),
+        prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 }, stopReason: 'end_turn', text: answerText(await turn(options, opts?.signal)), updates: [] }),
       };
       return { spec, executable: '/fixture', stderr: () => '', closed: new Promise<void>(() => undefined), initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } };
     },
@@ -88,6 +88,15 @@ describe('plugin agent graph bridge', () => {
     await bridge.run('unit', {});
     await bridge.run('unit', {});
     expect(meter.rows()[0]).toMatchObject({ totalTokens: 200, turns: 2 });
+  });
+
+  test('an unusable answer names its source file and line, never the bundle the engine is shipped in', async () => {
+    // A packaged binary's `import.meta.url` is `/$bunfs/root/madarch-linux-x64` (madarch-64o5.200), and this failure is
+    // what the run's journal and the Logs page show the owner: the source the failure stands at, then its words.
+    const { bridge } = setup(async () => ({ nothing: true }), {}, [], ['repo/docs'], () => 'not json');
+    const failure = await bridge.run('unit', {}).then(() => null, (error: Error) => error);
+    expect(failure?.message).toBe('src/plugin/agent.ts:1: the agent answer is no JSON');
+    expect(failure?.message).not.toContain('bunfs');
   });
 
   test('retains failed prompt errors and counts the attempted turn', async () => {

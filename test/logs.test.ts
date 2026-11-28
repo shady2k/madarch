@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentExchangeRecorder } from '../src/fill/agent-exchange.js';
 import { agentExchangeFolder, recordFileName } from '../src/fill/run-records.js';
-import { DEFAULT_LOG_SOURCES, LOG_SOURCES, engineEventOf, logRuns, readLogs } from '../src/knowledge/logs.js';
+import { DEFAULT_LOG_SOURCES, LOG_SOURCES, MAX_ENTRIES, engineEventOf, logRuns, readLogs } from '../src/knowledge/logs.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 
@@ -104,6 +104,35 @@ describe('every log in one read', () => {
     expect(logRuns(store)).toContain('fill-a');
   });
 
+  test.each(['engine', 'fill', 'trace'] as const)('%s keeps the file quota before exclusive cursors and the page limit', (source) => {
+    const { store, knowledgeRoot } = fixture();
+    const folder = join(source === 'engine' ? knowledgeRoot : store, 'traces');
+    const run = 'range';
+    const file = source === 'trace' ? `${run}.jsonl` : `${run}.log.jsonl`;
+    const boundary = Date.parse('2026-11-28T06:00:30Z');
+    const format = (offset: number | null): string => {
+      const at = offset === null ? undefined : boundary + offset * 1000;
+      return JSON.stringify(source === 'trace' ? {
+        name: 'span', endTimeUnixNano: at === undefined ? undefined : String(BigInt(at) * 1_000_000n),
+      } : { message: 'record', time: at === undefined ? undefined : new Date(at).toISOString() });
+    };
+    const quota = MAX_ENTRIES / 2;
+    writeFileSync(join(folder, file), [
+      format(-10), format(10), format(-1), format(2), ...Array<string>(quota - 5).fill(format(0)),
+      format(-2), format(1), format(null), 'malformed', '{}', '',
+    ].join('\n'));
+
+    const before = readLogs({ store, knowledgeRoot }, { sources: [source, 'plugin'], run, before: boundary, limit: 1 });
+    expect(before).toMatchObject({ scanned: 2, more: true, truncated: false });
+    expect(before.entries.map(({ at, id }) => [at, id])).toEqual([[boundary - 1000, `${run}:${file}:2`]]);
+    const from = readLogs({ store, knowledgeRoot }, { sources: [source, 'plugin'], run, from: boundary, limit: 2 });
+    expect(from).toMatchObject({ scanned: 2, more: false, truncated: false });
+    expect(from.entries.map(({ at, id }) => [at, id])).toEqual([
+      [boundary + 1000, `${run}:${file}:${quota}`],
+      [boundary + 2000, `${run}:${file}:3`],
+    ]);
+  });
+
   test('the route answers one page, and refuses a source or a level it does not know', async () => {
     const { store, knowledgeRoot } = fixture();
     const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
@@ -123,6 +152,96 @@ describe('every log in one read', () => {
     const badLevel = await part.logs(new Request('http://wiki.test/api/logs?level=shout'));
     expect(badLevel.response.status).toBe(400);
   });
+});
+
+/**
+ * The packaged engine's own locations never reach the reader (madarch-64o5.200): on a shipped binary every engine frame
+ * and every `import.meta.url` is `/$bunfs/root/madarch-linux-x64`, and the owner's acceptance read the run's journal,
+ * the extract-failed row and the opened stack of the fill-failed row. The words the failure carries stay; the bundle's
+ * own offsets go, because a reader can open no line of them. The file on disk keeps them as evidence.
+ */
+test('a packaged record is shown without the engine\'s own locations and keeps the failure\'s words', () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-logs-packaged-'));
+  roots.push(root);
+  const knowledgeRoot = join(root, 'knowledge');
+  const store = join(knowledgeRoot, 'mini-repo');
+  const traces = join(store, 'traces');
+  mkdirSync(traces, { recursive: true });
+  const bundle = '/$bunfs/root/madarch-linux-x64';
+  const stack = `Error: ${bundle}:87: RUN_NOT_WRITABLE run cancelling unit cancelled\n    at <anonymous> (${bundle}:82276:26)\n    at async withSpan (${bundle}:3229:33)\n    at processTicksAndRejections (native:7:39)`;
+  writeFileSync(join(traces, 'fill-packaged.log.jsonl'), [
+    { time: '2026-11-28T05:24:13.000Z', level: 'error', message: `unit not extracted: src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: ${bundle}: the agent answer is no JSON`, file: `${bundle}:152346:42`, path: `${bundle}:152346:42`, unitId: 'agent-fill:idea', runId: 'fill-packaged' },
+    { time: '2026-11-28T05:24:14.000Z', level: 'error', message: 'fill failed', file: `${bundle}:152346:42`, path: '/work/walk/home/mini-repo', runId: 'fill-packaged', error: { name: 'Error', message: `${bundle}:87: RUN_NOT_WRITABLE run cancelling unit cancelled`, stack } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  const page = readLogs({ store, knowledgeRoot }, { sources: ['fill'], run: 'fill-packaged' });
+  const extracted = page.entries.find((entry) => entry.code === 'unit-not-extracted');
+  expect(extracted?.message).toBe('unit not extracted: src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: the agent answer is no JSON');
+  expect(extracted?.arguments['detail']).toBe('src/plugin/host.ts:1: agent.run failed: src/plugin/agent.ts:1: the agent answer is no JSON');
+  expect(extracted).toMatchObject({ file: 'host.ts', line: 1, path: null });
+  expect(extracted?.fields['path']).toBeUndefined();
+  const failed = page.entries.find((entry) => entry.code === 'fill-failed');
+  expect(failed?.path).toBe('/work/walk/home/mini-repo');
+  expect(failed?.detail).toBe('RUN_NOT_WRITABLE run cancelling unit cancelled\n    at processTicksAndRejections (native:7:39)');
+  // A context field that held only the bundle's own offset names nothing a reader can use, and the product's path stands.
+  expect(failed?.fields).toEqual({ path: '/work/walk/home/mini-repo', runId: 'fill-packaged' });
+  expect(JSON.stringify(page)).not.toContain('bunfs');
+  expect(JSON.stringify(page)).not.toContain('madarch-linux-x64');
+});
+
+/**
+ * A location is one token (madarch-64o5.200, ALX-2065): the diagnostic that follows an engine location stands, and a
+ * product that lives inside the engine checkout's own `src/` keeps its own coordinates. The cases are the ones the review
+ * probed through `readLogs`: an inline bundle location before a plugin's path, a Windows-ended stack, an object-valued
+ * context and the trace attributes the orchestrator writes.
+ */
+test('a location is one token: the text after it stands and a product inside the checkout keeps its place', () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-logs-token-'));
+  roots.push(root);
+  const knowledgeRoot = join(root, 'knowledge');
+  const store = join(knowledgeRoot, 'shop');
+  const traces = join(store, 'traces');
+  mkdirSync(traces, { recursive: true });
+  const product = join(import.meta.dir, '..', 'src', 'demo-product');
+  const pluginFile = join(product, 'plugin.ts');
+  const bundle = '/$bunfs/root/madarch-linux-x64';
+  // A Windows writer ended every line in `\r\n`: the frame at the end of a line ends in `)\r`.
+  const stack = [
+    `Error: ${bundle}:87: RUN_NOT_WRITABLE run cancelling unit cancelled`,
+    `    at <anonymous> (${bundle}:82276:26)`,
+    `    at readSource (${pluginFile}:12:3)`,
+    `    at processTicksAndRejections (native:7:39)`,
+  ].join('\r\n');
+  const log = (path: string, records: readonly Record<string, unknown>[]): void => { writeFileSync(path, records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8'); };
+  log(join(traces, 'fill-token.log.jsonl'), [
+    { time: '2026-11-28T05:24:13.000Z', level: 'error', runId: 'fill-token', unitId: 'agent-fill:idea', message: `unit not extracted: failed at ${bundle}:82276:26 while loading ${pluginFile}:12:3: permission denied` },
+    { time: '2026-11-28T05:24:14.000Z', level: 'error', runId: 'fill-token', message: 'fill failed', file: `${bundle}:152346:42`, path: `${pluginFile}:12:3`, cause: { why: `${bundle}:152346:42`, note: 'keep me' }, error: { name: 'Error', message: `${bundle}:1: RUN_NOT_WRITABLE run cancelling unit cancelled`, stack } },
+  ]);
+  writeFileSync(join(traces, 'fill-token.jsonl'), `${JSON.stringify({ name: 'fill.unit', startTimeUnixNano: '1764307453000000000', endTimeUnixNano: '1764307453500000000', status: { code: 'STATUS_CODE_ERROR', message: `${bundle}:1: the unit gave up` }, attributes: [{ key: 'madarch.reason', value: { stringValue: `${bundle}:1: the agent answer is no JSON` } }, { key: 'madarch.unit', value: { stringValue: 'agent-fill:idea' } }] })}\n`, 'utf8');
+  mkdirSync(join(traces, 'fill-token.plugins'), { recursive: true });
+  writeFileSync(join(traces, 'fill-token.plugins', recordFileName('disk:code.file', 'log')), `bun exited at ${bundle}:1\n`, 'utf8');
+
+  const page = readLogs({ store, knowledgeRoot, product }, { sources: ['fill', 'trace', 'plugin'] });
+  // The location before the plugin's path is the engine's alone: the words after it and the plugin's own coordinates stay.
+  const extracted = page.entries.find((entry) => entry.code === 'unit-not-extracted');
+  expect(extracted?.message).toBe(`unit not extracted: failed at while loading ${pluginFile}:12:3: permission denied`);
+  expect(extracted?.arguments['detail']).toBe(`failed at while loading ${pluginFile}:12:3: permission denied`);
+  // The stack keeps the frames a reader can open, with their own line and column, and loses the bundle's offsets on both
+  // ends of a line: a location that ends in `)\r` is a frame too.
+  const failed = page.entries.find((entry) => entry.code === 'fill-failed');
+  expect(failed?.detail).toBe(`RUN_NOT_WRITABLE run cancelling unit cancelled\r\n    at readSource (${pluginFile}:12:3)\r\n    at processTicksAndRejections (native:7:39)`);
+  expect(failed?.path).toBe(`${pluginFile}:12:3`);
+  // A context field that held only the bundle's offsets leaves no key, and an object value is read through.
+  expect(failed?.fields).toEqual({ runId: 'fill-token', path: `${pluginFile}:12:3`, cause: '{"note":"keep me"}' });
+  // The trace attributes the orchestrator writes carry the unit's failure reason, and it is read like the message it is.
+  const trace = page.entries.find((entry) => entry.source === 'trace');
+  expect(trace?.fields).toEqual({ 'madarch.reason': 'the agent answer is no JSON', 'madarch.unit': 'agent-fill:idea' });
+  expect(trace?.detail).toBe('the unit gave up');
+  // Text the engine did not write stands as it was written, and is marked quoted.
+  const plugin = page.entries.find((entry) => entry.source === 'plugin');
+  expect(plugin?.message).toBe(`bun exited at ${bundle}:1`);
+  expect(plugin?.quoted).toBe(true);
+  // Every engine-written row of the page is clean: only the plugin's own line may still name the file it ran from.
+  expect(JSON.stringify(page.entries.filter((entry) => entry.source !== 'plugin'))).not.toContain('bunfs');
 });
 
 test('every fixed message the engine logs has a code the page words', async () => {

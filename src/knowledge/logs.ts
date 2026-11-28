@@ -26,6 +26,7 @@
 import { closeSync, openSync, readSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { engineDisplay } from '../server/engine-location.js';
 import { withSpanSync } from '../obs/trace.js';
 
 /** The logs one answer may draw from. */
@@ -134,18 +135,67 @@ function cutText(value: string, characters = MAX_DETAIL_CHARACTERS): { text: str
   return value.length <= characters ? { text: value, cut: false } : { text: value.slice(0, characters), cut: true };
 }
 
-/** A record's fields as an entry's context: values as text, a field that could hold a secret left out. */
-function contextOf(record: Readonly<Record<string, unknown>>, skip: ReadonlySet<string>): Record<string, string> {
+/** The text one read shows an engine's own words with (madarch-64o5.200): one product, one engine root. */
+type Shown = (text: string) => string;
+
+/** The moments a read keeps, so a record outside them is refused before it is prepared for the page. */
+interface Window {
+  readonly from?: number;
+  readonly before?: number;
+}
+
+/** Whether a record's moment stands inside the read's window; a record with no moment stands in none of them. */
+function inWindow(at: number | null, window: Window): boolean {
+  if (window.from !== undefined && (at === null || at <= window.from)) return false;
+  if (window.before !== undefined && (at === null || at >= window.before)) return false;
+  return true;
+}
+
+/**
+ * A record's fields as an entry's context: values as text, a field that could hold a secret left out, and every string
+ * a reader could open sanitized where it stands — a value of its own, or a string inside an object, which the page
+ * shows as its JSON (madarch-64o5.200). A value that held nothing but an engine location leaves no key behind.
+ */
+function contextOf(record: Readonly<Record<string, unknown>>, skip: ReadonlySet<string>, shown: Shown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of Object.keys(record).sort(byCodePoint)) {
     if (skip.has(key) || secretField(key)) continue;
     const value = record[key];
     if (value === undefined) continue;
-    const text = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value) ?? String(value); } catch { return String(value); } })();
-    const held = cutText(text, 2_000);
+    const heldValue = shownValueOf(value, shown);
+    if (heldValue === undefined) continue;
+    const raw = typeof heldValue === 'string' ? heldValue : (() => { try { return JSON.stringify(heldValue) ?? String(heldValue); } catch { return String(heldValue); } })();
+    const held = cutText(raw, 2_000);
     out[key] = held.cut ? `${held.text}…` : held.text;
   }
   return out;
+}
+
+/**
+ * A context value as a reader may see it: undefined when the value held nothing but an engine location, and otherwise the
+ * same value with every string inside it sanitized. A key or an item whose text the engine's location held alone goes.
+ */
+function shownValueOf(value: unknown, shown: Shown): unknown {
+  if (typeof value === 'string') {
+    const text = shown(value);
+    return value !== '' && text === '' ? undefined : text;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => shownValueOf(item, shown)).filter((item) => item !== undefined);
+    return value.length > 0 && items.length === 0 ? undefined : items;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    let kept = 0;
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const held = shownValueOf(item, shown);
+      if (held === undefined) continue;
+      out[key] = held;
+      kept += 1;
+    }
+    return Object.keys(value).length > 0 && kept === 0 ? undefined : out;
+  }
+  return value;
 }
 
 /** The file and line an error states at the head of its message (`src/x.ts:12: …`), when it states one. */
@@ -305,41 +355,59 @@ function sourceFiles(paths: { store: string; knowledgeRoot: string }, source: Lo
   }
 }
 
+/** The last valid records in the byte tail, in file order and with their original line indexes. */
+function structuredTail<Field extends 'message' | 'name'>(text: string, field: Field, limit: number) {
+  const lines = text.split('\n');
+  const records: { index: number; record: Record<string, unknown> & Record<Field, string> }[] = [];
+  for (let index = lines.length - 1; index >= 0 && records.length < limit; index -= 1) {
+    const line = lines[index]!;
+    if (line.trim() === '') continue;
+    let record: unknown;
+    try { record = JSON.parse(line); } catch { continue; }
+    if (record === null || typeof record !== 'object' || typeof (record as Record<string, unknown>)[field] !== 'string') continue;
+    records.push({ index, record: record as Record<string, unknown> & Record<Field, string> });
+  }
+  return records.reverse();
+}
+
 /** One structured log file (`obs/log.ts`) as entries. */
-function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'engine'): { entries: LogEntry[]; cut: boolean } {
+function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'engine', shown: Shown, window: Window, limit: number): { entries: LogEntry[]; cut: boolean } {
   const read = readTail(file);
   const entries: LogEntry[] = [];
   const skip = new Set(['time', 'level', 'message', 'error']);
-  for (const [index, line] of read.text.split('\n').entries()) {
-    if (line.trim() === '') continue;
-    let record: Record<string, unknown>;
-    try { record = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
-    if (record === null || typeof record !== 'object' || typeof record['message'] !== 'string') continue;
+  for (const { index, record } of structuredTail(read.text, 'message', limit)) {
     const time = typeof record['time'] === 'string' ? Date.parse(record['time']) : Number.NaN;
+    // Apply the time window to the file's quota before preparing the display fields for the live tail.
+    const at = Number.isFinite(time) ? time : null;
+    if (!inWindow(at, window)) continue;
     const error = record['error'] as { name?: unknown; message?: unknown; stack?: unknown } | undefined;
-    const detail = error === undefined ? null : cutText(typeof error.stack === 'string' ? error.stack : typeof error.message === 'string' ? error.message : '');
-    const event = engineEventOf(record['message']);
+    const path = typeof record['path'] === 'string' ? record['path'] : null;
+    // A record the engine wrote is shown without an engine location (madarch-64o5.200): the bundle path and its frames
+    // are the machine's own bookkeeping, not a line a reader can open; the file keeps them as evidence.
+    const written = shown(record['message']);
+    const detail = error === undefined ? null : cutText(shown(typeof error.stack === 'string' ? error.stack : typeof error.message === 'string' ? error.message : ''));
+    const event = engineEventOf(written);
     // An error's place stands where it is written: at the message's own head, or in the cause the event carries as an
     // argument (`the plugin session failed: src/x.ts:1: …`), which is where a family's file and line are.
-    const own = placeOf(record['message']);
+    const own = placeOf(written);
     const place = own.file !== null || event?.arguments['detail'] === undefined ? own : placeOf(event.arguments['detail']);
     entries.push({
       id: `${run ?? ''}:${basename(file)}:${String(index)}`,
-      at: Number.isFinite(time) ? time : null,
+      at,
       level: levelOf(record.level),
       source,
       run,
       unit: typeof record['unitId'] === 'string' ? record['unitId'] : null,
-      message: cutText(record['message']).text,
+      message: cutText(written).text,
       code: event?.code ?? null,
       arguments: event?.arguments ?? {},
       quoted: event === null,
       file: place.file,
       line: place.line,
-      path: typeof record['path'] === 'string' ? record['path'] : null,
+      path: path ? shown(path) || null : path,
       detail: detail?.text ?? null,
       cut: detail?.cut ?? false,
-      fields: contextOf(record, skip),
+      fields: contextOf(record, skip, shown),
     });
   }
   return { entries, cut: read.cut };
@@ -364,32 +432,37 @@ function entriesOfPluginLog(file: string, run: string | null, unit: string | nul
 }
 
 /** One run's spans as entries: a span's name, its duration and its status, with its attributes as context. */
-function entriesOfTraceFile(file: string, run: string | null): { entries: LogEntry[]; cut: boolean } {
+function entriesOfTraceFile(file: string, run: string | null, shown: Shown, window: Window, limit: number): { entries: LogEntry[]; cut: boolean } {
   const read = readTail(file);
   const entries: LogEntry[] = [];
-  for (const [index, line] of read.text.split('\n').entries()) {
-    if (line.trim() === '') continue;
-    let span: { name?: unknown; startTimeUnixNano?: unknown; endTimeUnixNano?: unknown; status?: { code?: unknown }; attributes?: { key?: unknown; value?: unknown }[] };
-    try { span = JSON.parse(line) as typeof span; } catch { continue; }
-    if (typeof span.name !== 'string') continue;
-    const start = Number(span.startTimeUnixNano) / 1e6;
-    const end = Number(span.endTimeUnixNano) / 1e6;
+  for (const { index, record } of structuredTail(read.text, 'name', limit)) {
+    const end = Number(record['endTimeUnixNano']) / 1e6;
+    const at = Number.isFinite(end) ? end : null;
+    if (!inWindow(at, window)) continue;
+    const start = Number(record['startTimeUnixNano']) / 1e6;
+    const attributes = record['attributes'] as { key?: unknown; value?: unknown }[] | undefined;
+    const status = record['status'] as { code?: unknown; message?: unknown } | undefined;
     const fields: Record<string, string> = {};
-    for (const attribute of span.attributes ?? []) {
+    for (const attribute of attributes ?? []) {
       if (typeof attribute.key !== 'string' || secretField(attribute.key)) continue;
       const value = attribute.value as Record<string, unknown> | undefined;
       const held = value === undefined ? '' : typeof value['stringValue'] === 'string' ? value['stringValue'] : typeof value['intValue'] === 'string' ? value['intValue'] : typeof value['boolValue'] === 'boolean' ? String(value['boolValue']) : '';
-      if (held !== '') fields[attribute.key] = held;
+      if (held === '') continue;
+      // An attribute the engine wrote is shown as the message it carries: `madarch.reason` holds the unit's failure
+      // summary, which names the engine's own place until it is read here (madarch-64o5.200).
+      const written = shown(held);
+      if (written === '') continue;
+      fields[attribute.key] = written;
     }
-    const failed = (span.status?.code === 'STATUS_CODE_ERROR');
+    const failed = status?.code === 'STATUS_CODE_ERROR';
     entries.push({
       id: `${run ?? ''}:${basename(file)}:${String(index)}`,
-      at: Number.isFinite(end) ? end : null,
+      at,
       level: failed ? 'error' : 'info',
       source: 'trace', run, unit: null,
-      message: `${span.name} ${Number.isFinite(start) && Number.isFinite(end) ? `${String(Math.max(0, Math.round(end - start)))} ms` : ''}`.trim(),
+      message: `${record.name} ${Number.isFinite(start) && at !== null ? `${String(Math.max(0, Math.round(at - start)))} ms` : ''}`.trim(),
       code: null, arguments: {}, quoted: false,
-      file: null, line: null, path: null, detail: failed ? (typeof (span.status as { message?: unknown }).message === 'string' ? (span.status as { message: string }).message : null) : null,
+      file: null, line: null, path: null, detail: failed && typeof status.message === 'string' ? shown(status.message) : null,
       cut: false, fields,
     });
   }
@@ -397,7 +470,7 @@ function entriesOfTraceFile(file: string, run: string | null): { entries: LogEnt
 }
 
 /** One agent unit's exchange as entries: what it was given, each step it streamed, and what it returned. */
-function entriesOfAgentFile(file: string, run: string | null): { entries: LogEntry[]; cut: boolean } {
+function entriesOfAgentFile(file: string, run: string | null, shown: Shown): { entries: LogEntry[]; cut: boolean } {
   const text = wholeText(file);
   if (text === null) return { entries: [], cut: false };
   let record: {
@@ -434,14 +507,17 @@ function entriesOfAgentFile(file: string, run: string | null): { entries: LogEnt
     });
   }
   const failed = record.state === 'failed';
+  // The unit's failure is the engine's own sentence about it, so it is shown without an engine location (madarch-64o5.200);
+  // what the agent itself answered is its own text, kept as it was written.
+  const failure = typeof record.failure === 'string' ? shown(record.failure) : undefined;
   const answer = cutText(typeof record.returned?.text === 'string' ? record.returned.text : '');
   entries.push({
     id: `${run ?? ''}:${unit}:returned`, at: Number.isFinite(end) ? end : null, level: failed ? 'error' : 'info', source: 'agent', run, unit,
-    message: failed ? `the agent unit ${unit} failed: ${typeof record.failure === 'string' ? record.failure : 'no cause was recorded'}` : `the agent unit ${unit} returned ${String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0)} characters`,
+    message: failed ? `the agent unit ${unit} failed: ${failure ?? 'no cause was recorded'}` : `the agent unit ${unit} returned ${String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0)} characters`,
     code: failed ? 'agent-failed' : 'agent-returned',
-    arguments: failed ? { unit, detail: cutText(typeof record.failure === 'string' ? record.failure : '').text } : { unit, characters: String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0) },
+    arguments: failed ? { unit, detail: cutText(failure ?? '').text } : { unit, characters: String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0) },
     quoted: false, file: null, line: null, path: null,
-    detail: failed ? (typeof record.failure === 'string' ? record.failure : null) : answer.text === '' ? null : answer.text,
+    detail: failed ? (failure ?? null) : answer.text === '' ? null : answer.text,
     cut: failed ? false : answer.cut, fields: {},
   });
   return { entries, cut: false };
@@ -451,10 +527,10 @@ function entriesOfAgentFile(file: string, run: string | null): { entries: LogEnt
 const rankOf = (level: LogLevel): number => LOG_LEVELS.indexOf(level);
 
 /** The entries of one file, by its source. */
-function entriesOf(file: { file: string; run: string | null; unit: string | null }, source: LogSourceName): { entries: LogEntry[]; cut: boolean } | undefined {
+function entriesOf(file: { file: string; run: string | null; unit: string | null }, source: LogSourceName, shown: Shown, window: Window, perFile: number): { entries: LogEntry[]; cut: boolean } {
   if (source === 'plugin') return entriesOfPluginLog(file.file, file.run, file.unit);
-  if (source === 'agent') return entriesOfAgentFile(file.file, file.run);
-  if (source === 'trace') return entriesOfTraceFile(file.file, file.run);
+  if (source === 'agent') return entriesOfAgentFile(file.file, file.run, shown);
+  if (source === 'trace') return entriesOfTraceFile(file.file, file.run, shown, window, perFile);
   if (source === 'store') {
     const read = readTail(file.file);
     const entries = read.text.split('\n').filter((line) => line.trim() !== '').map((line, index): LogEntry => ({
@@ -464,26 +540,27 @@ function entriesOf(file: { file: string; run: string | null; unit: string | null
     }));
     return { entries, cut: read.cut };
   }
-  return entriesOfLogFile(file.file, file.run, source);
+  return entriesOfLogFile(file.file, file.run, source, shown, window, perFile);
 }
 
 /**
  * Every log of one product's store and of the knowledge root it stands in, as one page: filtered by source, by the
  * quietest level, by one run, by a text and by a moment, oldest first, so a live tail appends to what a reader sees.
  */
-export function readLogs(paths: { readonly store: string; readonly knowledgeRoot: string }, query: LogQuery = {}): LogPage {
+export function readLogs(paths: { readonly store: string; readonly knowledgeRoot: string; readonly product?: string }, query: LogQuery = {}): LogPage {
   const sources = query.sources === undefined || query.sources.length === 0 ? DEFAULT_LOG_SOURCES : query.sources;
   const limit = Math.min(MAX_PAGE, Math.max(1, whole(query.limit, DEFAULT_PAGE)));
   const text = (query.q ?? '').trim().toLowerCase();
   const names = [...new Set(sources)];
+  // Work out the engine and product roots once for the read.
+  const shown = engineDisplay(paths.product);
+  const perFile = Math.max(1, Math.ceil(MAX_ENTRIES / names.length));
   const collected: LogEntry[] = [];
   let truncated = false;
   for (const source of names) {
-    const perFile = Math.max(1, Math.ceil(MAX_ENTRIES / Math.max(1, names.length)));
     for (const file of sourceFiles(paths, source, 8)) {
       if (query.run !== undefined && file.run !== query.run) continue;
-      const read = entriesOf(file, source);
-      if (read === undefined) continue;
+      const read = entriesOf(file, source, shown, query, perFile);
       truncated ||= read.cut;
       // The files of a source are read oldest first and the read keeps the newest lines: a log is read for its end.
       for (const entry of read.entries.slice(-perFile)) collected.push(entry);
@@ -493,8 +570,7 @@ export function readLogs(paths: { readonly store: string; readonly knowledgeRoot
     // One run's entries only: a source that belongs to no run (the store's own log) has nothing of a run to show.
     if (query.run !== undefined && entry.run !== query.run) return false;
     if (query.level !== undefined && rankOf(entry.level) < rankOf(query.level)) return false;
-    if (query.from !== undefined && (entry.at === null || entry.at <= query.from)) return false;
-    if (query.before !== undefined && (entry.at === null || entry.at >= query.before)) return false;
+    if (!inWindow(entry.at, query)) return false;
     if (text !== '' && !entry.message.toLowerCase().includes(text) && !(entry.detail ?? '').toLowerCase().includes(text)) return false;
     return true;
   });
@@ -512,7 +588,7 @@ export function readLogs(paths: { readonly store: string; readonly knowledgeRoot
  * One page of every log the product keeps, with what its filters offer: the runs behind the store's traces, the sources
  * and the levels. The page and the one read API answer the same shape (madarch-64o5.88).
  */
-export function logsAnswer(paths: { readonly store: string; readonly knowledgeRoot: string }, query: LogQuery = {}): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
+export function logsAnswer(paths: { readonly store: string; readonly knowledgeRoot: string; readonly product?: string }, query: LogQuery = {}): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
   return { ...readLogs(paths, query), runs: logRuns(paths.store), sources: [...LOG_SOURCES], levels: [...LOG_LEVELS] };
 }
 

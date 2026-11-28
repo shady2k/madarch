@@ -2536,7 +2536,7 @@ export class KnowledgeProduct {
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
-      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary, detail: runId !== undefined }))!;
+      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary, detail: runId !== undefined, product: this.options.productFolder }))!;
       const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
       return { ...detail, agentExchanges: exchanges };
     }));
@@ -2548,7 +2548,7 @@ export class KnowledgeProduct {
    * and reads no product file: it is the machine's evidence, filtered and paged.
    */
   logs(query: LogQuery): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
-    return logsAnswer({ store: this.storeFolder(), knowledgeRoot: this.options.storeRoot }, query);
+    return logsAnswer({ store: this.storeFolder(), knowledgeRoot: this.options.storeRoot, product: this.options.productFolder }, query);
   }
 
   /** A scoped control never targets mutable latest-run fields. */

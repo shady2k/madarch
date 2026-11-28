@@ -32,6 +32,25 @@ page's own path through the field. This change carries the correction of all thr
 3. **The lower bound never reached the read.** `from` was handed over as `since`, a name the read's own query does not
    hold, so `from` excluded nothing and answered every record the other filters kept.
 
+**Follow-up, 2026-11-28: the engine's own location in what the reader is shown.** The packaged walk of ALX-2047 on `c94b578ec79346dc003512ab9c1d8c852988a0f9` followed Runs → run → Logs with no HTTP,
+GraphQL or console failure, and found the shipped binary's own path in three texts a reader sees. The run's journal
+cause and the extract-failed row read `src/plugin/agent.ts:1: /$bunfs/root/madarch-linux-x64: the agent answer is no
+JSON`; the fill-failed row's detail opened with `Error: /$bunfs/root/madarch-linux-x64:87: RUN_NOT_WRITABLE run
+cancelling unit cancelled` and named every frame at the bundle's byte offsets; a context field held only
+`/$bunfs/root/madarch-linux-x64:152346:42`. The reproduction and the exact fields are
+`/work/alx2047/lead-followup/raw-path-finding.json` in box `alx1936-accept` (ALX-2047 at `bec7e39f9`).
+
+Three faults, one correction:
+
+1. **The agent bridge named the file it was bundled into, not itself.** `src/plugin/agent.ts:29` built its `WHERE` from
+   `import.meta.url`, which is `/$bunfs/root/madarch-linux-x64` in a compiled binary and the checkout's absolute path otherwise;
+   every failure it raised carried that after its own `src/plugin/agent.ts:1:`, so the journal cause and the
+   extract-failed row carried it too.
+2. **The operation host did the same.** `src/graph/operation-host.ts:17` built its `WHERE` from `new URL(import.meta.url).pathname`, the head of the fill-failed row's detail.
+3. **The Logs read showed the record as the engine wrote it.** `src/knowledge/logs.ts` passed a record's message, its
+   stack and its context fields through untouched, so the bundle's path and its frames reached the page even where the
+   engine's sentence was correct.
+
 ## Out of scope
 
 - The page's own drawing and the kit's log viewer: unchanged, and its tests pass untouched.
@@ -66,6 +85,26 @@ worker built its query under the name `since`, which no field of `LogQuery` hold
 out of TypeScript's excess-property check, so the compiler said nothing and the read dropped the bound. It is `from`
 now, and the boundary stays what it was: `from` exclusive, `before` exclusive, oldest first, the newest page kept.
 
+### The follow-up correction
+
+**The two injections.** Each module now names itself by its source path — `src/plugin/agent.ts:1` and
+`src/graph/operation-host.ts` — as `src/plugin/host.ts`, `src/plugin/sandbox.ts` and `src/adapters/postgres-install.ts`
+already do. The source path and line are what a failure owes a reader; the file the engine was bundled into is a
+deployment detail, and in a compiled binary its line is not a line of any module.
+
+**The read.** `stripEngineLocations()` in `src/server/engine-location.ts` reads a record the engine wrote for a person:
+it takes out every engine location wherever it stands (the head of a message, the field after it, a context value) and
+drops a stack frame that stands only at the engine's bundle — a bundle frame carries no source map, so its line and
+column name an offset in the shipped binary that no reader can open. A frame at the checkout's own source keeps its
+line and column and loses only the folder this machine keeps the checkout in, and a product's or a plugin's location
+stands as written. It is the module's existing normalization (`stripEngineLocation()`, madarch-64o5.203), read over a
+whole text instead of its head, and it reuses that function for the head so the two cannot disagree. `src/knowledge/
+logs.ts` applies it to the message, the stack detail and the context fields of records the engine wrote — engine, fill,
+agent failure, trace status — and not to text it did not write: a plugin's standard error and the store's own
+PostgreSQL log stand as they were written and stay marked quoted. A context field left holding nothing but an engine
+location is left out rather than shown empty. The file on disk is never rewritten: the bundle's path stays in the
+record as the evidence a developer reads with the store.
+
 ## Changes to requirements
 
 None. The change realizes the Logs page's own proposed requirement (`product-wiki/logs`, proposed by change
@@ -75,7 +114,7 @@ paging and an empty state. No requirement text moves.
 ## Preserved contracts
 
 - product-wiki/serve: a served product still answers its wiki's reads through `POST /graphql` by the api role, one operation in its own read-only snapshot answered by the read worker; the page and the route that was already answered are unchanged (static)
-- product-wiki/logs: the window's own meaning is untouched — `from` and `before` are epoch milliseconds, both exclusive, entries oldest first, one page of at most `MAX_PAGE` kept from the newest end (test)
+- product-wiki/logs: the page's entries, filters, paging and order stand, and so do its window's own meaning (`from` and `before` are epoch milliseconds, both exclusive, oldest first, one page of at most `MAX_PAGE` kept from the newest end) and the text madarch did not write, which is shown exactly as it was; an engine record's message, stack, context and trace attributes, and a saved run's journal, are shown without an engine location and with every product or plugin coordinate kept (test)
 
 ## Coverage
 
@@ -172,3 +211,129 @@ shipped it (`$from: Int, $before: Int`, every filter an explicit null):
   here.
 - Review: this correction follows the ALX-2008 verdict (`CHANGES f66b8d72912a671cdefcd22e101b4ec1b61cd4f4`); the lead
   checks the correction diff.
+
+### The follow-up correction
+
+Box `alx1936-accept` (4 vCPU, 8 GiB), a worker checkout of `origin/main` `d08cfb936210952af89eae50098718afef9bdfb4` at
+`/work/correction`, run as the box user. The correction is PR #404, one commit on that base; every line below covers
+that commit, so a later revision's results replace none of them. Errors as the run printed them, with the file, the line
+and the full path.
+
+- **The correction fails on the pre-fix source, on the same tests.** With `git stash push -- src` (the three source
+  files at `d08cfb936`), `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/plugin-agent-bridge.test.ts` — exit 1,
+  20 pass, 2 fail:
+  - `/work/correction/test/plugin-agent-bridge.test.ts:98`: expected `src/plugin/agent.ts:1: the agent answer is no
+    JSON`, received `src/plugin/agent.ts:1: /work/correction/src/plugin/agent.ts: the agent answer is no JSON`.
+  - `/work/correction/test/logs.test.ts:149`: expected `unit not extracted: src/plugin/host.ts:1: agent.run failed:
+    src/plugin/agent.ts:1: the agent answer is no JSON`, received the same with
+    `/$bunfs/root/madarch-linux-x64: ` between `src/plugin/agent.ts:1: ` and the words.
+  - With the same stash, `MADARCH_SKIP_PERF=1 bun test test/immediate-operation.test.ts` — exit 1, 3 pass, 1 fail at
+    `/work/correction/test/immediate-operation.test.ts:56`: expected `/^src\/graph\/operation-host\.ts:87:
+    RUN_NOT_WRITABLE run paused unit running$/u`, received `/work/correction/src/graph/operation-host.ts:87:
+    RUN_NOT_WRITABLE run paused unit running`.
+- **The correction passes.** `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/logs-graphql.test.ts
+  test/plugin-agent-bridge.test.ts test/immediate-operation.test.ts test/wiki-refusal-boundary.test.ts
+  test/entity-cli.test.ts` — exit 0, 37 pass, 0 fail, 386 expect() calls, 15.39 s, the two Logs files among them so the
+  page's own route still reads its entries.
+- **Static:** `bun run check` — exit 0. `tsc --noEmit` clean; `check:architecture` 499 violations, all 499 listed;
+  `check:ui` 0; `check:catalog` no finding; `check:workflows` 4; `check:slow-tests` 66 excluded files, no finding;
+  `check:quarantine`; `check:tests` 0 violations.
+- **Full suite and mutation:** not run, per the card — GitHub CI is the merge check and the card forbids a mutation run.
+- **Walk:** the packaged navigation rerun on the merged correction belongs to ALX-2047; the acceptance target is the
+  merged correction on a packaged binary.
+- **Author:** `shady2k-gateway/deepseek-v4.1-flash-auto` (Pi). No paid model call was made: the agent answer of the
+  regression is the deterministic fixture's own text.
+
+### The correction of 2026-11-28 (ALX-2065)
+
+The review of PR #404 at `c9a0f76bd50b34968d13dd97e8202f6eb3e7066c` found that the follow-up above hid the engine's
+location where it was generated and left it everywhere the reader actually looks. Five findings, corrected together on
+top of that commit, which stands unchanged.
+
+1. **A saved run's journal still showed the bundle.** The bridge fix changed what a new failure says; the run page draws
+   the journal from the events the run stored, and `src/knowledge/fill-runs.ts` returned each stored `summary` as it
+   was written. `readFillRunDetail()` — the one read behind the run page and `Query.fillRuns` — now shows an event the
+   way the Logs page shows one, and the store keeps the event as the engine wrote it.
+2. **An engine location swallowed the diagnostic after it.** `engineFieldEnd()` ended a location at the next `: `
+   anywhere on the line, so `unit not extracted: failed at /$bunfs/root/madarch-linux-x64:82276:26 while loading
+   /workspace/product/plugin.ts:12:3: permission denied` came out as `unit not extracted: failed at permission denied`.
+   A location is now one token: a bundle mount runs to its first separator and carries at most its own `:line(:column)`,
+   and the text after the token stands as written.
+3. **A product inside the engine checkout lost its coordinates.** The Logs read called the sanitizer without the product
+   it belongs to, so a location under the checkout's own `src/` or `scripts/` was classified as the engine's. The read
+   carries the product's folder (`KnowledgeProduct.logs()`, the read worker's descriptor) and a location under it stands
+   as written — message, stack frame and context alike.
+4. **Expanded details and context still leaked.** `frameOf()` tested for a final `)` after splitting on `\n`, so a line a
+   Windows writer ended in `)\r\n` fell through to the last-word branch, which kept the opening `(`; an object-valued
+   context was stringified before it was shown, so a nested value holding only the bundle survived; and the trace
+   attributes the orchestrator writes — `madarch.reason`, the unit's failure summary — bypassed the display entirely.
+   A frame is read on the line without its `\r`, and its last word loses the parenthesis that opens it; a context value
+   is shown string by string, through objects and arrays, and a key or item left holding nothing is left out; trace
+   attributes and a span's own status message are shown like the message they carry.
+5. **The live tail spent its interval on rows it does not show.** Every read prepared each record for the page —
+   sanitizing its message, stack and context — and only then applied the time cursor. Measured in `alx1936-accept` on
+   three 1.95 MB fill logs of 5,900 rows each, four reads with a `from` after the newest row (so no row is shown) took
+   116–154 ms at the base `898838c8`, 1,118–1,331 ms at `c9a0f76b`, and 21–48 ms on `0e6835b62`. A record outside the
+   read's time window is refused before its display fields are built, and one read works out its engine root and
+   product once. The follow-up below restores the order in which the file quota and the time window are applied.
+
+**Preserved.** The message, stack and context of a record the engine wrote lose only an engine location: the failure's
+words, a product's or a plugin's paths and coordinates, and every frame a reader can open stay. Text the engine did not
+write — a plugin's standard error, the store's PostgreSQL log — stands exactly as written and stays marked `quoted`.
+A trace's own attributes keep every value except an engine location, and `madarch.reason` keeps the failure's words.
+The file on disk is never rewritten.
+
+### Acceptance evidence for the correction (ALX-2065)
+
+Box `alx1936-accept` (4 vCPU, 8 GiB), checkout `/work/correction` at `d08cfb936` with this correction's diff, run as the
+box user. Errors are printed as the run printed them, with the file, the line and the full path.
+
+- **The new regressions fail on the reviewed head `c9a0f76b`.** With the reviewed sources restored (`git checkout -- src`
+  then `git apply --include=src/** /work/delivered-final.patch`) and the new test files in place,
+  `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/fill-runs.test.ts --timeout=60000` — exit 1, 2 fail:
+  - `/work/correction/test/fill-runs.test.ts:438`: expected to contain
+    `the run failed: src/plugin/agent.ts:1: the agent answer is no JSON`, received
+    `the run failed: src/plugin/agent.ts:1: /$bunfs/root/madarch-linux-x64: the agent answer is no JSON`.
+  - `/work/correction/test/logs.test.ts:195`: expected `unit not extracted: failed at while loading
+    …/engine-checkout/src/demo-product/plugin.ts:12:3: permission denied`, received
+    `unit not extracted: failed at permission denied`.
+- **The same files pass on this correction.** `MADARCH_SKIP_PERF=1 bun test test/logs.test.ts test/logs-graphql.test.ts
+  test/fill-runs.test.ts test/plugin-agent-bridge.test.ts test/immediate-operation.test.ts test/entity-cli.test.ts
+  test/wiki-refusal-boundary.test.ts --timeout=60000` — exit 0 (the focused files, 60 s bound; the first plain run
+  without the flag stopped `test/fill-runs.test.ts`'s 6.2 s case at Bun's 5 s, the box's own hang guard being the
+  runner's flag).
+- **The wiki's own rendering.** `cd wiki/app && bun install --frozen-lockfile` (exit 0, 330 packages) then
+  `bun run check` — `tsc --noEmit` clean and `UI architecture: 0 violations`; `bun test src/components/command-pages.test.tsx`
+  — 43 pass, 0 fail, the new case among them: the saved run's journal draws `the agent answer is no JSON` and neither
+  `bunfs` nor `madarch-linux-x64`.
+- **Static:** `bun run check` — exit 0. `tsc --noEmit` clean; `architecture: 497 violations`, all 497 listed;
+  `check:ui` 0; `check:catalog` 120 kinds, no finding; `check:workflows`; `check:slow-tests` 66 listed, 511 measured
+  files, no finding; `check:quarantine`; `check:tests` 0 violations.
+- **The live tail, measured off the committed tests** (`bun .perf-logs.ts`: three fill logs, 5,900 rows each, 5,710,710
+  bytes in all — 1.90 MB each — four reads with an exclusive `from` after the newest row, zero entries shown):
+
+  | Revision | Read 1 | Read 2 | Read 3 | Read 4 |
+  | --- | --- | --- | --- | --- |
+  | base `898838c8` (pre-fix) | 154 ms | 127 ms | 116 ms | 123 ms |
+  | reviewed `c9a0f76b` | 1,331 ms | 1,209 ms | 1,118 ms | 1,206 ms |
+  | previous candidate `0e6835b62` | 48 ms | 37 ms | 23 ms | 21 ms |
+
+  The reviewer's own numbers on its input were 143–167 ms at the base and 1,042–1,097 ms at `c9a0f76b`; the shape is the
+  same and the empty refresh is back inside the page's 1,000 ms interval.
+- **Not run:** the full suite, a mutation run and the packaged browser walk — GitHub CI is the merge check, and the new
+  packaged navigation rerun belongs to ALX-2047 after merge. Author: `shady2k-gateway/deepseek-v4.1-flash-auto` (Pi), no
+  paid model call.
+
+### The file quota and displayed path (ALX-2007)
+
+The lead's cursor probe found that the previous candidate applied the time window before the file quota. With two
+sources selected, an older fill record followed by 10,000 newer ones reappeared in a `before` page. The Logs reader
+now selects the last valid records in the byte tail for fill, server and trace files, then checks both exclusive time
+bounds before building the display fields. The tests exercise each source with malformed lines, records at the cursor,
+out-of-order timestamps, stable line IDs and the page counters.
+
+An engine record's top-level `path` is passed through the same display normalization as its context. A value holding
+only the embedded engine location is omitted. Expanded details still carry a product or plugin path and its coordinates,
+including when the product sits under the engine checkout's `src` directory. The correction verifies both outcomes
+through the Logs reader. The box report `/work/reports/madarch-64o5.200-cursor.md` holds the revision-specific commands,
+results and live refresh measurements.

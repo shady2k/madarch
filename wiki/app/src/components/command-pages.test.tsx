@@ -155,6 +155,27 @@ test('a successful run reads unmistakably finished at the top, with its end time
   } finally { await page.close(); }
 });
 
+test('a saved run shows the journal failure the read answered, never the file its engine was bundled into', async () => {
+  // The reader answers the stored event without the bundle's location (madarch-64o5.200): the cause the page draws is the
+  // failure's own words and the file a person can open, and no `/$bunfs/` path reaches the screen.
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(), remainingMs: null, publishedUnits: 0,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'agent-fill', done: 0, total: 1, state: 'failed', phase: 'failed' }],
+    units: [{ unitId: 'agent-fill:demo.alpha', stage: 'agent-fill:demo.alpha', scope: 'demo.alpha', status: 'failed', phase: 'failed', generation: 1, attempts: 1 }],
+    events: [{
+      seq: 1, at: new Date(Date.now() - 1000).toISOString(), stage: 'agent-fill:demo.alpha', unitId: 'agent-fill:demo.alpha', type: 'unit-failed',
+      summary: 'agent-fill:demo.alpha failed: src/plugin/agent.ts:1: the agent answer is no JSON',
+    }],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const journal = page.container.querySelector('[data-testid="fill-run-journal"]');
+    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('the agent answer is no JSON');
+    expect(journal?.textContent).not.toContain('bunfs');
+    expect(journal?.textContent).not.toContain('madarch-linux-x64');
+  } finally { await page.close(); }
+});
+
 test('a run that published nothing is failed, never partial', async () => {
   runAnswer = {
     ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(), remainingMs: null, publishedUnits: 0,
