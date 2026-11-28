@@ -2400,7 +2400,7 @@ type Query {
   cochange(id: ID!, edge: String!, first: Int, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): [Cochange!]!
   catalogueDependencies(lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): JSON!
-  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int, context: Int, validAt: DateTime, recordedAt: DateTime): JSON!
+  logs(sources: [String!], level: String, run: String, q: String, from: Float, before: Float, limit: Int, context: Int, validAt: DateTime, recordedAt: DateTime): JSON!
   products(context: Int, validAt: DateTime, recordedAt: DateTime): JSON
   fillStatus(context: Int, validAt: DateTime, recordedAt: DateTime): JSON
   fillRuns(run: String, context: Int, validAt: DateTime, recordedAt: DateTime): JSON

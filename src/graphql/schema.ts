@@ -562,10 +562,13 @@ class Builder {
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'catalogueDependencies', type: 'JSON!', args: [{ name: 'lang', type: 'String' }] },
       // The logs page reads the machine's evidence through the one read API (madarch-64o5.88): the same page of every
-      // log, filtered by the arguments and bounded by the reader's own constants.
+      // log, filtered by the arguments and bounded by the reader's own constants. A moment is ordinary epoch
+      // milliseconds, which a 32-bit `Int` cannot carry — `2026-11-27T18:00:00Z` is 1795802400000, past `Int`'s
+      // 2147483647 — so `from` and `before` are `Float`: GraphQL's double holds every whole number below 2^53 exactly,
+      // and the reader floors one anyway. `limit` stays the bounded `Int` the reader caps at `MAX_PAGE`.
       { name: 'logs', type: 'JSON!', args: [
         { name: 'sources', type: '[String!]' }, { name: 'level', type: 'String' }, { name: 'run', type: 'String' },
-        { name: 'q', type: 'String' }, { name: 'from', type: 'Int' }, { name: 'before', type: 'Int' }, { name: 'limit', type: 'Int' },
+        { name: 'q', type: 'String' }, { name: 'from', type: 'Float' }, { name: 'before', type: 'Float' }, { name: 'limit', type: 'Int' },
       ] },
       // The service's own state read through the one read API (madarch-64o5.136 restore): the products this server
       // serves, the fill's state and its runs, and the plan one selection would run. The layer that owns the state

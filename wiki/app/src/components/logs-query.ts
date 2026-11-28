@@ -53,8 +53,12 @@ export interface LogsAsked {
   readonly limit?: number;
 }
 
-/** The logs page's operation: the graph's `logs` field answers one page of every log madarch keeps. */
-const LOGS_QUERY = `query Logs($sources: [String!], $level: String, $run: String, $q: String, $from: Int, $before: Int, $limit: Int) {
+/**
+ * The logs page's operation: the graph's `logs` field answers one page of every log madarch keeps. A moment is epoch
+ * milliseconds — `from` and `before` — so both are `Float`: the 32-bit `Int` refuses a real date (`1795802400000` for
+ * 2026-11-27T18:00:00Z) before the read starts. `limit` stays an `Int`, bounded by the reader.
+ */
+const LOGS_QUERY = `query Logs($sources: [String!], $level: String, $run: String, $q: String, $from: Float, $before: Float, $limit: Int) {
   logs(sources: $sources, level: $level, run: $run, q: $q, from: $from, before: $before, limit: $limit)
 }`;
 
