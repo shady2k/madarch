@@ -65,6 +65,14 @@ with no end at all. Two causes, one part of the patch each.
 - **A request refused at admission ends too.** A press the product refuses because another
   run still holds the chain records its own end, so the pressing page answers rather than
   waiting behind a run that never started.
+- **A server supervises its fill role instead of starting it once.** `startFillRole`
+  (`src/server/http.ts`) watches the `--role fill` child it started: a role that ends while
+  the server still serves is logged with its exit and started again, with the same command,
+  isolation and nice level, after 1 s, 2 s, and 5 s for each further exit in a row, and the
+  ladder returns to 1 s after a role that ran 30 s. A server's stop cancels a replacement it
+  is waiting for and ends the role it has, so an exit racing the stop leaves no role behind.
+  This is the daemon half of the same defect: a dead worker claimed nothing, so the queue's
+  retry stood unclaimed and the press waited until the daemon was restarted by hand.
 
 ## Rationale
 
@@ -129,3 +137,8 @@ None.
   once the queue holds no attempt for it.
 - A job settled done carries a run whose end a press can read: an attempt that published
   no end leaves its job to the queue's next attempt, and the last attempt ends the run.
+- A `madarch serve` whose `--role fill` child ends by itself starts another within the
+  bounded waits and keeps serving the home's fills: a queued fill pressed afterwards runs to
+  its end through the replacement role, with no restart of the server.
+- A server asked to stop ends its fill role and starts none: an exit that races the stop
+  leaves no role of the home running, and no replacement waits behind it.
