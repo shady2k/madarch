@@ -17,8 +17,8 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { readFillEnd, writeFillEndIfAbsent } from '../src/graph/fill-orchestration.js';
-import { advanceRun, createRun, readChain, readRun, readRunUnits } from '../src/graph/fill-state.js';
+import { readFillEnd, writeFillEndIfAbsent, writeOrchestration } from '../src/graph/fill-orchestration.js';
+import { advanceChainIn, advanceRun, createRun, openChainIn, readChain, readRun, readRunUnits } from '../src/graph/fill-state.js';
 import { listRepositories } from '../src/graph/records.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
 import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue } from '../src/fill/run-jobs.js';
@@ -244,4 +244,63 @@ test('a press that loses the run transition leaves the run\'s own completion its
   // A second end, from either side, never replaces it.
   expect(await writeFillEndIfAbsent(database, { runId: started.runId, state: 'failed', message: 'late fallback' })).toBe(false);
   expect((await readFillEnd(owner, started.runId))?.state).toBe('succeeded');
+}), 120_000);
+
+test('a re-delivered attempt that cannot build its service ends the run instead of being acknowledged done', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('redelivery');
+  const { owner, database, storeFolder } = await preparedStore(place);
+  const queued = await openFillRunQueue(owner);
+  opened.push(queued);
+  const press = new KnowledgeProduct({ productFolder: place.folder, storeRoot: place.knowledgeRoot, fillQueued: true });
+  products.push(press);
+  const started = await press.startFill({ pluginsOnly: true });
+  if (!started.started) throw new Error(`the press was refused before the queue: ${started.message}`);
+  // The first attempt planned and started the run and then ended without settling it: the run stands `running`, its chain
+  // follows it, and the queue holds the retry — what a fill role that was killed leaves behind.
+  await advanceRun(database, { runId: started.runId, event: { type: 'plan', at: Date.now(), configuration: 'fixture' } });
+  await advanceRun(database, { runId: started.runId, event: { type: 'start', at: Date.now(), stages: 1 } });
+  await writeOrchestration(database, async (tx) => {
+    await openChainIn(tx, { product: place.name, at: Date.now() });
+    await advanceChainIn(tx, { product: place.name, event: { type: 'start', at: Date.now(), runId: started.runId } });
+  });
+  const first = await claimFillRun(queued);
+  if (first === null) throw new Error('the fixture job was not claimed');
+  expect(await queued.fail(FILL_RUN_QUEUE, first, 'the fixture attempt ended without settling')).toBe('retry');
+  await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET start_after = clock_timestamp() WHERE id = $1::uuid`, [first.id]); });
+  // The environment changed between the two attempts: the store's saved writing agent names an adapter this machine does
+  // not have, so the attempt refuses before its service is built. `failRequestedFill` writes no end for a run already
+  // begun, so this attempt has no result to publish — and a job it acknowledges as done leaves the press waiting for ever.
+  writeFileSync(join(storeFolder, 'writer.json'), `${JSON.stringify({ agent: 'nonesuch', model: 'none' })}\n`);
+  let roleDone = false;
+  const roleLog: string[] = [];
+  const role = driveRole(place, () => roleDone, (line) => { roleLog.push(line); if (roleLog.length > 40) roleLog.shift(); });
+  try {
+    let end = await readFillEnd(owner, started.runId);
+    for (let waited = 0; end === null && waited < 80; waited += 1) {
+      await Bun.sleep(250);
+      end = await readFillEnd(owner, started.runId);
+    }
+    if (end === null) throw new Error(`the re-delivered job was acknowledged without a run result: the run got no end; the fill role says: ${roleLog.slice(-4).join(' | ')}`);
+    expect(end.state).toBe('failed');
+    expect(end.message ?? '').toContain('unknown agent');
+    // The end is this request's own answer: the press stops waiting, and what the failed run held is released.
+    await press.settled();
+    expect((await readRun(database, started.runId))?.state).toBe('failed');
+    expect((await readChain(owner, place.name))?.state).toBe('quiescent');
+    // The same live press and the same role fill the product again once the environment is put right: no restart, and the
+    // page the press answers reads the product it has again.
+    rmSync(join(storeFolder, 'writer.json'), { force: true });
+    expect((await press.status()).fill.state).toBe('failed');
+    const again = await press.startFill({ pluginsOnly: true });
+    if (!again.started) throw new Error(`the product refused a fresh fill after its run failed: ${again.message}`);
+    await press.settled();
+    const endAgain = await readFillEnd(owner, again.runId);
+    if (endAgain?.state !== 'succeeded') throw new Error(`the fresh fill ended ${JSON.stringify(endAgain)}; the fill role says: ${roleLog.slice(-6).join(' | ')}`);
+    expect(endAgain?.state).toBe('succeeded');
+    expect((await listRepositories(owner)).map((repository) => repository.name)).toContain('shop-code');
+  } finally {
+    roleDone = true;
+    await Promise.race([press.settled().catch(() => undefined), Bun.sleep(3_000)]);
+    await role.catch(() => undefined);
+  }
 }), 120_000);

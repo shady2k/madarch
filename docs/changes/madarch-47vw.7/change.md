@@ -32,6 +32,12 @@ publishes its end, and only the caller that moved the run publishes that end.
   asks the queue whether the job it was given still holds an attempt; a spent job leaves
   the run standing for no one, so the press moves the run itself and answers with its end
   instead of waiting for ever.
+- **A job is acknowledged only for the end it published.** The fill role settles its
+  `fill-runs` job done only when the run's end is durable afterwards: an attempt that
+  failed before it built its service published no end at all (a run already `planning`
+  or `running` takes none from `failRequestedFill`), so the queue's next attempts carry
+  the run and the last one ends it, instead of a completed job leaving the press waiting
+  for an end no process writes.
 - **A request refused at admission ends too.** A press the product refuses because another
   run still holds the chain records its own end, so the pressing page answers rather than
   waiting behind a run that never started.
@@ -84,4 +90,6 @@ None.
   units skipped, its chain quiescent and its end written.
 - A press that cannot start ends with a terminal answer, and the product accepts a new
   fill afterwards without a restart.
+- A job settled done carries a run whose end a press can read: an attempt that published
+  no end leaves its job to the queue's next attempt, and the last attempt ends the run.
 - A fallback failure never replaces an end the run already won.
