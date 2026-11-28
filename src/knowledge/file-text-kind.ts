@@ -11,6 +11,13 @@ export interface FileTextRole {
 
 let held: FileTextRole | undefined;
 
+/** The same path exclusions the file producer receives, including the starter declaration when not taken. */
+export function fileTextExclusions(manifest: import('../product/manifest/kinds.js').KindsManifest): readonly string[] {
+  const kind = catalogueFileTextRole().kind!;
+  const fallback = CATALOG_RAW_KINDS[kind]?.exclude;
+  return manifest.kinds.get(kind)?.exclude ?? (Array.isArray(fallback) ? fallback as string[] : []);
+}
+
 /**
  * The catalogue's own declaration of the kind a repository's files are held as (decision 0037): a product whose manifest
  * declares a `file-text:` role of its own reads by that one, and a product whose manifest predates the decision reads by

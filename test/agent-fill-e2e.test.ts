@@ -66,7 +66,7 @@ const DECISION_QUERY = `{ allDocDecision(first: 10, orderBy: [{ field: legacyId 
 
 async function evidenceFiles(owner: Parameters<typeof executeGraphql>[0], manifest: Parameters<typeof executeGraphql>[1]) {
   const digests = DECISIONS.map((file) => createHash('sha256').update(`# ${file.title}\n\n${file.body}\n`).digest('hex'));
-  // The product's catalogue is also a source: keep unrelated rows beyond the first page.
+  // The linked repository's own files are the only source of these rows: keep unrelated ones beyond the first page.
   for (const kind of ['allCodeBlob', 'allCodeFile']) {
     const page = await executeGraphql(owner, manifest, { query: `{ ${kind}(first: 10) { totalCount edges { node { id } } } }` });
     expect(page.status).toBe(200);
@@ -118,6 +118,12 @@ function fixture(options: { readonly agent?: boolean } = {}) {
   const repository = join(root, 'app');
   mkdirSync(join(repository, 'docs/decisions'), { recursive: true });
   for (const file of DECISIONS) writeFileSync(join(repository, file.path), `# ${file.title}\n\n${file.body}\n`);
+  // The linked repository alone supplies this graph's code rows (ALX-1937: the product's own checkout is no code input),
+  // so the first page of ten has to be shorter than the graph: twelve further files keep more rows behind it.
+  mkdirSync(join(repository, 'docs/notes'), { recursive: true });
+  for (let at = 1; at <= 12; at += 1) {
+    writeFileSync(join(repository, 'docs/notes', `note-${String(at).padStart(2, '0')}.md`), `# Note ${at}\n\nA note of the linked repository, number ${at}.\n`);
+  }
   const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   git(repository, 'init', '-q', '-b', 'main');
   git(repository, 'add', '-A');

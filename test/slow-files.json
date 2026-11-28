@@ -267,13 +267,13 @@
     },
     {
       "path": "test/fill-updates-run.test.ts",
-      "seconds": 255.4,
-      "reason": "red-defect",
-      "result": "red",
-      "owner": "madarch-x9a7",
-      "defect": "The setup expects a watcher update run after a default-branch commit, but watch.pass creates no run with the expected request id and the hook throws.",
-      "replacement": "Drive one declared repository commit through the watcher and assert exactly one update request with the commit-derived identity, correct pins and preserved user-controlled fill behavior.",
-      "exit": "Rewrite test/fill-updates-run.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
+      "seconds": 167.43,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.208",
+      "defect": "The complete confined fixture ran in 167.43 s: it performs the initial fill and the linked default-branch update, then reads the persisted run and repository facts.",
+      "replacement": "Keep the initial fill and the watcher-driven fill with its store assertions in the required slow-files job.",
+      "exit": "Return the file to a blocking shard after a green single-file confirmation at or below 15 seconds."
     },
     {
       "path": "test/git-file-history.test.ts",
@@ -627,13 +627,13 @@
     },
     {
       "path": "test/source-follows-fill.test.ts",
-      "seconds": 51.4,
+      "seconds": 171.46,
       "reason": "green-slow",
       "result": "green",
       "owner": "madarch-64o5.176",
-      "defect": "The three cases pass on a runner and read a fixture product's source pages and query budget from the store another process published: one case holds the setup fill to its measured query budget, one reads a page's source through the read worker, and one, 18.8 s, follows a fill another process published. After the speed-up stream the complete file is green on the runner in three samples of the F4 tree: 52.77 s, 51.40 s and 49.89 s (runs 46044618928, 46045922097 and 46046625374), median 51.40 s, which is the number this entry records. Its earlier runner measurement was 90.647 s (run 45758277151).",
-      "replacement": "Both fills are the case - one publishes the store, the other shows a source following it - so two passes at 18.6-19.5 s each cannot fit the bound. Stays a named required job in the slow-files matrix of .github/workflows/ci.yml until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it, so the matrix job is its required coverage.",
-      "exit": "Remove this entry only after a green complete-file runner measurement of test/source-follows-fill.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then. The allowed-to-fail nightly / quarantine job is not coverage."
+      "defect": "The complete confined fixture ran in 171.46 s (four passes). It pays two fills and reads the recorded revisions through the wiki source consumers.",
+      "replacement": "Keep both fills and the source-reader assertions in the required slow-files job.",
+      "exit": "Return the file to a blocking shard after a green single-file confirmation at or below 15 seconds."
     },
     {
       "path": "test/starter-value-sets.test.ts",
@@ -684,6 +684,16 @@
       "defect": "The one case pays a real product fill to its end: the store's preparation, the planning and plugin turns of the repository fixture, the seal the wiki validates, and both ends of the supervised fill role. In box alx2078-review-fix (agent-linux-01, 2 vCPU, 4 GiB) the complete file measured 146 444 ms alone, of which the queued fill took about 103 s; the project's own runner note records about 19 s for one small-fixture fill, so the file cannot share a blocking shard with the supervision cases.",
       "replacement": "Keep the ladder, the healthy-uptime reset, a refused start and both stop cases in the millisecond-scale test/fill-role-supervision.test.ts, and keep only the one queued fill through the replacement here, so a slower fixture never grows the blocking shards.",
       "exit": "Remove this entry only after a green complete-file runner measurement of test/fill-role-service.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage; the explicit required invocation in .github/workflows/ci.yml stays until then."
+    },
+    {
+      "path": "test/product-catalogue-code-boundary.test.ts",
+      "seconds": 432.63,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-64o5.208",
+      "defect": "The five cases each press a real fill through the plugin turns on their own fixture product and read the store it leaves. Two of them are the managed press with a fake ACP adapter (ALX-1937, ALX-2067 finding 7): the product is served as the reader opens it, `/api/fill-selected` is asked for a kind an agent fills, and the adapter writes what it read from the session's graph server and from madarch's file callback. On box alx1937 (4 vCPU, 8 GiB, image madarch-3, plugins unconfined because the box delegates no cgroup) the five cases took 28.1 s, 43.9 s, 35.7 s, 185.2 s and 143.1 s, 432.63 s for the whole file against the 30 s bound. The file is green: 5 pass, 0 fail, in the run that produced this measurement.",
+      "replacement": "The cost is the fill, and the two managed presses also pay the served product's catalogue publication and the agent's unit; both are the subject, so neither is cut. It stays a named required job in the slow-files matrix of .github/workflows/ci.yml (`.github/workflows/ci.yml:298`) until a green complete-file runner measurement at or below 30 s exits it; the shards exclude it.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/product-catalogue-code-boundary.test.ts at or below 30 seconds, confirmed on a fresh run, with its five cases still blocking in CI."
     }
   ]
 }

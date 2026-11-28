@@ -45,12 +45,12 @@ import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { MANIFESTS_GUIDE } from '../product/guides.js';
 import { productRepositoryId } from '../product/identity.js';
-import { catalogueFileTextRole } from './file-text-kind.js';
+import { catalogueFileTextRole, fileTextExclusions } from './file-text-kind.js';
 import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { enqueueFillRun, FILL_RUN_QUEUE, openFillRunQueue } from '../fill/run-jobs.js';
-import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_DEADLINE_MS, FILE_TEXT_QUEUE } from './file-texts.js';
+import { declareFileTextQueue, readFileTextByBlob } from './file-texts.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { FINAL_RUN_STATES, runPhaseOf } from '../fill/fsm.js';
@@ -86,14 +86,16 @@ import { groupViews } from './catalog-view.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readChangedPages } from './changed-pages.js';
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
-import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
+import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceAddress, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
 import { documentOpinions } from './anchors.js';
 import { Resolver } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
 import { type PlannedTask } from '../loop/tasks.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
-import { StoredProductFiles } from '../plugin/product-source.js';
+import { pinnedProductSources, sourceRange, sourceTextOf, visibleSourcePath } from './product-pinned-source.js';
+import type { RepositoryPin as PinnedRepositoryPin } from '../plugin/repository-snapshot.js';
+import type { FileTextResult } from './file-text-shape.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { type ProblemListing, type TaskRow } from '../loop/views.js';
 import { collectProblems } from '../problems/index.js';
@@ -112,7 +114,7 @@ import { authoredEntity } from '../graph/authored.js';
 import type { GraphContract } from '../graph/contract.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
-import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../graph/manifest-publication.js';
+import { publishValidatedManifests, validateProductManifests, publishedSourceText, readPublishedManifest } from '../graph/manifest-publication.js';
 import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
 import { Kind, parse, valueFromASTUntyped, type DocumentNode } from 'graphql';
@@ -361,12 +363,14 @@ export class KnowledgeProduct {
    * root travel with it: the read worker answers the logs page from the machine's own files, and a descriptor without
    * them answers `Query.logs` with null, which the non-nullable field refuses (madarch-64o5.200).
    */
-  async readDescriptor(): Promise<ReadDescriptor> {
+  async readDescriptor(withSources = false): Promise<ReadDescriptor> {
     await this.open();
     await this.followStoreFill();
     const store = this.storeFolder();
     const endpoint = clusterEndpoint(clusterPaths(storeDatabasePath(store)).socketDir);
-    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' }, store, knowledgeRoot: this.options.storeRoot };
+    const product = withSources ? this.product() : undefined;
+    const sourceRevisions = product === undefined || 'message' in product ? undefined : { seq: this.reader!.seq, commits: await this.sourceRevisions(product) };
+    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' }, store, knowledgeRoot: this.options.storeRoot, ...(sourceRevisions === undefined ? {} : { sourceRevisions }) };
   }
 
   get folder(): string {
@@ -409,7 +413,6 @@ export class KnowledgeProduct {
       if (writing) {
         this.generation += 1;
         if (this.reader !== undefined) this.reader.seq = this.generation;
-        this.filesMemo = undefined;
         this.manifestMemo = undefined;
         this.kindCountsCache.clear();
         this.notify();
@@ -433,7 +436,6 @@ export class KnowledgeProduct {
       const result = await importAuthored(this.folder, authoredImportHost(owner, binding), read.manifest, identity.name, `person:${by.name} <${by.email}>`);
       this.generation += 1;
       if (this.reader !== undefined) this.reader.seq = this.generation;
-      this.filesMemo = undefined;
       this.manifestMemo = undefined;
       this.notify();
       return result;
@@ -571,23 +573,47 @@ export class KnowledgeProduct {
     }
   }
 
-  /** The product's own files as one graph revision holds them, and the revision they were read at. */
-  private filesMemo: { seq: number; repository: string; files: StoredProductFiles } | undefined;
+  private pinnedSourcesMemo: { seq: number; sources: ReturnType<typeof pinnedProductSources> } | undefined;
 
-  /**
-   * The product repository's own files as the graph holds them, once per graph revision: the manifest and the declaration
-   * files beside it, the Markdown entities, the templates and the files of the loop are read here. A reader of a page
-   * never opens the checkout: the files producer read it into the graph, and this is the graph's answer (stage C).
-   */
-  private async productFiles(reader: GraphReader, repository: string, folder: string): Promise<StoredProductFiles> {
+  private async sourceRevisions(product: ProductIdentity): Promise<Map<string, string>> {
+    const owner = await this.open();
+    const revisions = new Map([...this.pins].filter(([, pin]) => pin.commit !== '').map(([name, pin]) => [name, pin.commit]));
+    // A run state this store cannot read is answered as the last known one, never as a failed read (madarch-8bdc.9): a
+    // source read falls back to the pins this process holds, as the running fill's own answer does in `followStoreFill`.
+    let memo = this.fillStateMemo?.owner === owner ? this.fillStateMemo : undefined;
+    try {
+      memo = await this.productFillState(owner, product.name);
+    } catch {
+      // The store cannot be read: the answer is what this process last knew.
+    }
+    if (memo === undefined) return revisions;
+    const { snapshot, configuration } = memo;
+    // A mere press or a failed/cancelled run does not replace the last published product revision.
+    const published = snapshot.runs.find(run => run.state === 'succeeded' || run.state === 'completed_partial');
+    const run = published === undefined ? null : published.runId === configuration?.runId ? configuration : await readRunConfiguration(owner, published.runId);
+    if (run !== null && run.snapshot.commit !== '') revisions.set(productRepositoryId(product), run.snapshot.commit);
+    return revisions;
+  }
+
+  private async pinnedSources(product: ProductIdentity): Promise<ReturnType<typeof pinnedProductSources>> {
     const seq = this.reader?.seq ?? 0;
-    const held = this.filesMemo;
-    if (held !== undefined && held.seq === seq && held.repository === repository) return held.files;
-    // A document's text is read by the blob id the graph names, through the host's queue (decision 0037): the same read
-    // a file's page makes, async and bounded, and no stored copy.
-    const files = await StoredProductFiles.load(reader, repository, folder, async (path) => (await this.fileText(repository, path))?.text ?? null);
-    this.filesMemo = { seq, repository, files };
-    return files;
+    if (this.pinnedSourcesMemo?.seq === seq) return this.pinnedSourcesMemo.sources;
+    const revisions = await this.sourceRevisions(product);
+    const held = this.pinnedSourcesMemo;
+    if (held !== undefined && held.seq === seq) return held.sources;
+    const sources = pinnedProductSources(product, revisions);
+    this.pinnedSourcesMemo = { seq, sources };
+    return sources;
+  }
+
+  /** One blob of a pinned repository, read through the store's one queue by the git plugin (decision 0037). */
+  private async readPinnedBlob(pin: Pick<PinnedRepositoryPin, 'id' | 'root'>, blob: string, options: { readonly from?: number; readonly fromColumn?: number; readonly to?: number }): Promise<FileTextResult> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    return await readFileTextByBlob(await this.fileTextQueue(), {
+      product: product.folder, repository: pin.id, root: pin.root, blob,
+      from: options.from ?? 1, fromColumn: options.fromColumn ?? null, to: options.to ?? null,
+    });
   }
 
   /** The manifest one graph revision was read as: the whole parse stands for the revision, not for a page. */
@@ -641,7 +667,7 @@ export class KnowledgeProduct {
    */
   async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }, service: { readonly products?: () => unknown } = {}): Promise<{ readonly status: number; readonly body: MessageBody }> {
     try {
-      const answer = await readWorker(this.readDescriptor().then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
+      const answer = await readWorker(this.readDescriptor(true).then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
       return await this.fillServiceFields(operation, answer, service);
     } catch (error) {
       return { status: 200, body: { errors: [{ message: error instanceof Error ? error.message : String(error), extensions: { code: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED' } }] } };
@@ -811,6 +837,13 @@ export class KnowledgeProduct {
    * repository entity and its as-is edge (madarch-hsqs stage A).
    */
   private async loadPins(owner: DatabaseOwner): Promise<void> {
+    // A product whose manifest links no repository has no repository fact to read, and asking the graph for one without
+    // a repository bound is a read the manifest's binding refuses: the answer is no pin, stated without a failing read
+    // (ALX-2067, finding 7: a product with empty `repos:`).
+    if (this.repositories().length === 0) {
+      this.replacePins([]);
+      return;
+    }
     const manifest = await owner.run(tx => readPublishedManifest(tx));
     if (manifest === undefined) throw new WikiReadError('the graph has no published manifest for repository reads');
     const kinds = graphKindsOf(manifest);
@@ -1097,8 +1130,10 @@ export class KnowledgeProduct {
       return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
     }
     const repositories = this.repositories();
-    // A product with no code repository still has its own repository: the files producer reads it, so a product that is
-    // documentation alone fills its documents and its own tree. A folder that is no Git checkout has nothing to read.
+    // A product's code comes only from the repositories its manifest links under `repos:` (ALX-1937): the product's own
+    // checkout is pinned to read its manifests and reaches no plugin and no agent as source code. A product that links
+    // none has no code to read, and its own folder is still the one repository the run stands on; a folder that is no
+    // Git checkout has no revision to pin.
     if (repositories.length === 0 && headCommitOf(product.folder) === undefined) {
       return { started: false, message: 'the product declares no code repository and its own folder is no Git checkout: connect one with "madarch repo add <name> <url>", then start the fill', fill: this.fill };
     }
@@ -1711,20 +1746,9 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
-    // The evidence is the file's text by its blob, read the way the source view reads it (decision 0037): a working copy
-    // is never read. A file the graph holds no blob for is no evidence, and the verdict says so.
-    const product = this.product();
-    const repository = 'message' in product ? '' : productRepositoryId(product);
-    const commit = 'message' in product ? '' : headCommitOf(product.folder)?.commit ?? '';
-    // One read a file: the promises are kept for the whole run, so concurrent asks share a read rather than each asking
-    // the host for the same blob.
-    const reads = new Map<string, Promise<GraphEvidenceContent | undefined>>();
-    const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
+    const readEvidence = async (path: string, address?: GraphEvidenceAddress): Promise<GraphEvidenceContent | undefined> => {
       signal.throwIfAborted();
-      if ('message' in product) throw new WikiReadError(product.message);
-      const held = reads.get(path) ?? this.fileText(repository, path).then((text) => text === undefined ? undefined : { text: text.text, repository, commit });
-      reads.set(path, held);
-      return await held;
+      return await this.evidenceAt(path, address);
     };
     const result = await runGraphVerdicts({
       snapshot,
@@ -1983,7 +2007,6 @@ export class KnowledgeProduct {
       this.generation += 1;
       this.storeStamp = undefined;
       this.countsMemo = undefined;
-      this.filesMemo = undefined;
       this.manifestMemo = undefined;
       this.kindCountsCache.clear();
       this.problemsCache = undefined;
@@ -2580,66 +2603,58 @@ export class KnowledgeProduct {
     return this.runViewOf(runId);
   }
 
-  /**
-   * One file's text, by (repository, blob id) from git's object store through the plugin host (madarch-u3vw.16, decision
-   * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
-   * Nothing here reads a file: the api role never touches a product's working copy.
-   */
-  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number; readonly fromColumn?: number; readonly blob?: string } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string; readonly complete: boolean; readonly next: { readonly line: number; readonly column: number } | null; readonly moved?: boolean } | undefined> {
+  /** One reader-visible file, using published evidence before Git and never the working copy. */
+  async fileText(repository: string | null, path: string, options: { readonly from?: number; readonly to?: number; readonly fromColumn?: number; readonly blob?: string } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string; readonly complete: boolean; readonly next: { readonly line: number; readonly column: number } | null; readonly moved?: boolean; readonly commit: string | null } | undefined> {
     await this.open();
     await this.followStoreFill();
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = await this.manifestRead(product.folder);
     if (!read.present) return undefined;
+    const own = productRepositoryId(product);
+    const named = repository ?? own;
+    if (named !== own && !product.repos.some(repo => repo.name === named)) return undefined;
+    if (!visibleSourcePath(path, fileTextExclusions(read.manifest))) return undefined;
+    if (named === own) {
+      const stored = await (await this.open()).run(tx => publishedSourceText(tx, read.manifest, path));
+      if (stored !== undefined) return { ...sourceTextOf(stored, options), repository: named, path, commit: null };
+    }
+    const graphBlob = named === own ? undefined : await this.graphFileBlob(named, path, read.manifest);
+    if (graphBlob === null) return undefined;
+    const held = graphBlob === undefined ? await (await this.pinnedSources(product))(named, path, fileTextExclusions(read.manifest)) : undefined;
+    const blob = graphBlob ?? held?.blob;
+    if (blob === undefined) return undefined;
+    const commit = held?.reader.commit ?? this.pins.get(named)?.commit ?? null;
+    const pin = held?.pin ?? { id: named, root: join(product.folder, 'repos', named) };
+    const range = sourceRange(blob, options);
+    const result = await this.readPinnedBlob(pin, blob, range);
+    return { ...result, blob, from: range.from, repository: named, path, commit, ...(range.moved ? { moved: true } : {}) };
+  }
+
+  private async graphFileBlob(repository: string, path: string, manifest: KindsManifest): Promise<string | null | undefined> {
     // The kind and its roles are the product's declaration, or the catalogue's when its manifest names none (decision
     // 0037): the engine holds no field name of its own.
-    const declared = fileTextKind(read.manifest) ?? undefined;
+    const declared = fileTextKind(manifest) ?? undefined;
     const roles = declared?.fileText ?? catalogueFileTextRole();
     const kindName = declared?.name ?? roles.kind;
     if (kindName === undefined) return undefined;
     const parent = declared?.keyEdges?.find(one => one.role === roles.repository)
-      ?? read.manifest.kinds.get(kindName)?.keyEdges?.find(one => one.role === roles.repository);
+      ?? manifest.kinds.get(kindName)?.keyEdges?.find(one => one.role === roles.repository);
     if (parent === undefined) return undefined;
     const owner = await this.open();
     const blob = await owner.transaction('snapshot', async tx => {
-      const contract = withAssertionContract(withManifestContract(graphContractOf(read.manifest)));
-      const files = await readKindAssertions(tx, 'vertex', kindName, [roles.path, roles.blob], { contract });
+      const contract = withAssertionContract(withManifestContract(graphContractOf(manifest)));
+      const files = await readKindAssertions(tx, 'vertex', kindName, [roles.path, roles.blob, 'mode'], { contract });
       const edges = await readKindAssertions(tx, 'edge', parent.edge, [], { contract });
       const repositories = await withSpan('graph.source.repository', {}, async () => await tx.query<{ id: number }>(`SELECT id FROM node WHERE key->>'name'=$1`, [repository]));
       const ids = new Set(repositories.rows.map(row => Number(row.id)));
       const children = new Set(edges.filter(edge => ids.has(Number(parent.direction === 'from' ? edge.to : edge.from)))
         .map(edge => Number(parent.direction === 'from' ? edge.from : edge.to)));
-      return files.find(file => children.has(file.id) && file.values[roles.path] === path)?.values[roles.blob];
+      const matching = files.filter(file => children.has(file.id) && file.values[roles.path] === path);
+      if (matching.length > 1 || ['120000', '160000'].includes(String(matching[0]?.values.mode))) return null;
+      return matching[0]?.values[roles.blob];
     });
-    if (typeof blob !== 'string' || blob === '') return undefined;
-    // The plugin reads the repository the product connected, and only that one: the request names it, and the host
-    // checks it lies under the product's repos/ — or is the product's own repository, which is its folder
-    // (src/knowledge/file-texts.ts).
-    const named = this.repositories().find((held) => held.name === repository);
-    const root = named?.path ?? (repository === product.name ? product.folder : join(product.folder, 'repos', repository));
-    // The read is a job on the store's one queue, answered by the fill role (madarch-u3vw.16): the queue carries the
-    // request and the answer, and no store of its own is written. A reader's later ranges name the blob its first answer
-    // held; a blob that moved restarts the view at its first line and says so, so two revisions are never interleaved.
-    const moved = options.blob !== undefined && options.blob !== blob;
-    const from = moved ? 1 : Math.max(1, Math.trunc(options.from ?? 1));
-    const fromColumn = moved ? null : options.fromColumn === undefined ? null : Math.max(1, Math.trunc(options.fromColumn));
-    const queue = await this.fileTextQueue();
-    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob, from, fromColumn, to: moved ? null : options.to === undefined ? null : Math.trunc(options.to) });
-    const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
-    let asked = 0;
-    while (Date.now() < deadline) {
-      const held = await fileTextAnswer(queue, id);
-      if (held !== null) {
-        if ('error' in held) throw new WikiReadError(held.error);
-        return { ...held, blob, from, repository, path, ...(moved ? { moved: true } : {}) };
-      }
-      asked += 1;
-      // A read whose worker died is recovered by the queue's own sweep: ask it now and then rather than wait the lease.
-      if (asked % 20 === 0) await queue.recover(FILE_TEXT_QUEUE).catch(() => undefined);
-      await Bun.sleep(50);
-    }
-    throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
+    return blob === null ? null : typeof blob === 'string' && blob !== '' ? blob : undefined;
   }
 
   /** The store's read queue: the one fill queue, declared for reads too, and closed with the product. */
@@ -2649,16 +2664,16 @@ export class KnowledgeProduct {
     return this.fillQueue;
   }
 
-  /**
-   * A file of a repository, for the source view (decision 0037): the graph names the file's blob, and the host reads it
-   * from git's object store through the plugin. No working copy is read here, and a file the graph holds no blob for is
-   * no file of the source view. The product's own repository is named by the product.
-   */
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    const held = await this.fileText(repo ?? product.name, path);
-    return held === undefined ? undefined : { text: held.text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
+    const held = await this.fileText(repo, path);
+    return held === undefined ? undefined : { text: held.text, commit: held.commit };
+  }
+
+  private async evidenceAt(path: string, address?: GraphEvidenceAddress): Promise<GraphEvidenceContent | undefined> {
+    const held = await this.fileText(address?.repository ?? null, path);
+    if (held === undefined || held.binary || !held.complete || (address?.blob !== undefined && held.blob !== address.blob)) return undefined;
+    const commit = address?.commit ?? held.commit;
+    return { text: held.text, repository: held.repository, ...(commit === null ? {} : { commit }) };
   }
 
   // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------
@@ -2778,8 +2793,7 @@ export class KnowledgeProduct {
     const kinds = graphKindsOf(manifest);
     const graph = new GraphReader(owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated, kinds.edges, graphContractOf(manifest), manifest);
     const repository = this.singleRepository();
-    const [files, dismissals, markdownRead, documents] = await Promise.all([
-      this.productFiles(graph, productRepositoryId(product), product.folder),
+    const [dismissals, markdownRead, documents] = await Promise.all([
       graphProblemDismissals(graph),
       graphMarkdownEntities(graph, pageOpinionKinds(manifest, kinds.generated)),
       documentOpinions(graph, manifest),
@@ -2795,7 +2809,7 @@ export class KnowledgeProduct {
       locate: () => undefined,
     });
     return await collectProblems({
-      productFolder: this.options.productFolder, owner, files, manifest,
+      productFolder: this.options.productFolder, owner, manifest,
       // The listing reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
       graph,
       findingKinds: [...manifest.kinds.values()].filter((kind) => kind.findings === true).map((kind) => kind.name).sort(),

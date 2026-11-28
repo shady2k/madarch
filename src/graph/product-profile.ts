@@ -11,15 +11,22 @@ import { publishGraphDrafts } from './write.js';
 import { assertApplicability, cascadeApplicability, readApplicability, type KindApplicability } from './applicability.js';
 import { reconcileDisputes } from './disputes.js';
 import { byCodePoint } from '../model/order.js';
+import { codeRepositoryPins } from '../product/fill-stages.js';
 
-export async function fillProductProfile(owner: DatabaseOwner, contract: GraphContract, manifest: KindsManifest, snapshots: SnapshotSource): Promise<KindApplicability[]> {
+export async function fillProductProfile(owner: DatabaseOwner, contract: GraphContract, manifest: KindsManifest, snapshots: SnapshotSource, expectedCodeRepositories?: number): Promise<KindApplicability[]> {
   return await withSpan('fill.product-profile',{},async () => {
     if (![...manifest.kinds.values()].some(kind => kind.applicability !== undefined || kind.profileMarkers !== undefined || kind.profileTechnologies !== undefined)) return [];
-    const pins = await snapshots.pins();
-    if (pins.length === 0) return await owner.run(tx => readApplicability(tx,contract));
+    const pins = codeRepositoryPins(await snapshots.pins());
+    // An unreadable declared checkout is not evidence that a marker is absent.
+    if ((expectedCodeRepositories === undefined && pins.length === 0) ||
+        (expectedCodeRepositories !== undefined && pins.length !== expectedCodeRepositories)) {
+      return await owner.run(tx => readApplicability(tx,contract));
+    }
     const paths: string[] = [];
     const trees: {repository:string;commit:string;tree:string;paths:string[]}[] = [];
     for (const pin of pins) {
+      // The product's own checkout is no code input (ALX-1937): a marker that stands only in the product's tree never
+      // makes a kind applicable, and the evidence lists the linked repositories' paths alone.
       const reader = await snapshots.open(pin.id);
       if (reader.unfiled().length > 0) throw new Error(`${import.meta.path}:23: ${reader.root}: profile cannot establish absence with unfiled paths`);
       const files = reader.files().map(entry => entry.path).sort(byCodePoint);
@@ -45,7 +52,7 @@ export async function fillProductProfile(owner: DatabaseOwner, contract: GraphCo
           values[field] = [...technologies].sort(byCodePoint);
         }
         const policy = kind.applicability;
-        if (policy === undefined || policy.markers.length === 0 || pins.length === 0) continue;
+        if (policy === undefined || policy.markers.length === 0) continue;
         const found = paths.filter(path => matchesAny(policy.markers,path)).sort(byCodePoint);
         const reason = `Searched all ${paths.length} pinned files for ${policy.markers.join(', ')}; ${found.length === 0 ? 'no marker found' : found.join(', ')}`;
         await assertApplicability(tx,contract,kind.name,found.length === 0 ? 'inapplicable':'applicable',reason,evidence);

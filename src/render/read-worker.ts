@@ -13,6 +13,7 @@ export interface ReadDescriptor {
   /** The product's store folder and the knowledge root its logs stand under, when the caller reads logs too. */
   readonly store?: string;
   readonly knowledgeRoot?: string;
+  readonly sourceRevisions?: { readonly seq: number; readonly commits: ReadonlyMap<string, string> };
 }
 export type ReadWork =
   | { readonly kind: 'graphql'; readonly descriptor: ReadDescriptor; readonly operation: GraphqlOperation; readonly deadlineMs?: number }

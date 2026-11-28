@@ -223,7 +223,7 @@ jobs:
             exit 1
           fi
 
-  # The fourteen green-slow files test/slow-files.json lists that this matrix runs,
+  # The sixteen green-slow files test/slow-files.json lists that this matrix runs,
   # measured over 30 seconds alone (on a runner, or on a box for the newest entry),
   # run here one job each. Nine are the
   # speed-up stream's: they measured alone in three samples of the F4 tree (runs
@@ -245,6 +245,14 @@ jobs:
   # the files the first one published, 40.059 s for the file and 36.5 s of it the
   # case, alone on box alx2082-review-fix (2 vCPU), which is the number
   # .github/workflows/single-file-timings.json holds for it.
+  # The fifteenth and sixteenth joined this matrix with ALX-1937 (2026-11-28).
+  # test/fill-updates-run.test.ts drives one declared repository commit through the
+  # watcher, 167.43 s on box alx1937 (4 vCPU, 8 GiB). test/product-catalogue-code-boundary.test.ts
+  # holds five cases that each press a real fill on their own product, and the
+  # shards exclude it because the list names it, so this job is its blocking
+  # coverage; the complete file measured 432 630 ms on box alx1937, its plugins
+  # unconfined because the box delegates no cgroup, where the two managed presses
+  # with the fake ACP adapter are the new cost.
   # test/agent-fill-e2e.test.ts stays here after a return attempt on 2026-11-28: two
   # further required runs of main measured it at or below the bound alone
   # (46099717218 at f2c55b343: 26.76 s; 46102135712 at c94b578ec: 27.38 s), but the
@@ -260,7 +268,7 @@ jobs:
   # repository's case-level quarantine (madarch-stm0.13, docs/quarantine.md).
   # The shards leave out every file the
   # list names (the shard step here and scripts/run-tests.ts), so this required
-  # matrix is the blocking coverage of these fourteen. Four fixtures of the list run in
+  # matrix is the blocking coverage of these sixteen. Four fixtures of the list run in
   # partition-bootstrap, not in `checks`: git-partition-bootstrap,
   # h3-real-reconciliation, disk-support-ownership and agent-fill-graph-mcp. Every
   # other green-slow entry runs only in the nightly slow-tests.yml, as do main's
@@ -279,13 +287,15 @@ jobs:
           - { file: test/agent-fill-e2e.test.ts, cases: 2 }
           - { file: test/architecture-repository.test.ts, cases: 1 }
           - { file: test/db-schema-path.test.ts, cases: 5 }
+          - { file: test/fill-updates-run.test.ts, cases: 7 }
           - { file: test/owner-fill-path.test.ts, cases: 1 }
           - { file: test/ordinary-plugin-partition.test.ts, cases: 16 }
           - { file: test/plugin-agent-edge-order.test.ts, cases: 1 }
           - { file: test/imports-path.test.ts, cases: 5 }
           - { file: test/roles-two-and-two.test.ts, cases: 1 }
           - { file: test/status-work.test.ts, cases: 2 }
-          - { file: test/source-follows-fill.test.ts, cases: 3 }
+          - { file: test/source-follows-fill.test.ts, cases: 4 }
+          - { file: test/product-catalogue-code-boundary.test.ts, cases: 5 }
           - { file: test/fill-trace.test.ts, cases: 2 }
           - { file: test/fill-run-recovery.test.ts, cases: 14 }
           - { file: test/fill-role-service.test.ts, cases: 1 }

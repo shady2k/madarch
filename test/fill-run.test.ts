@@ -166,20 +166,20 @@ describe('the one fill', () => {
     }
   }, 300_000);
 
-  test("the product repository's own files reach the graph through the files plugin, its manifest among them (madarch-hsqs, madarch-64o5.74)", async () => {
-    // The owner's words (madarch-hsqs, 2026-11-10): «У нас один источник, граф… запрещено получать информацию
-    // откуда-либо, кроме графа» and «с исходной файловой системой работает только плагин файлов… больше никто».
-    // A reader of the product's documents reads them from the graph (src/plugin/product-source.ts), so the files
-    // plugin must publish the product repository's own files: no exclusion leaves the product's manifest unread.
+  test("the product's own checkout is no code repository of the graph, and the linked repository is (ALX-1937)", async () => {
+    // The owner's words (ALX-1937, FR-005, FR-006): a product's repository reaches the graph as its catalogue from its
+    // manifests alone; `code.repository`, `code.directory` and `code.file` come from the repositories its manifest links
+    // under `repos:`. A reader of the product's own documents reads them at the pinned commit through the blob gateway
+    // (`src/knowledge/product-pinned-source.ts`), never as code rows.
     const store = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const run = await runFill({ product, database: store, steps: ['plugin-turns'], runId: 'product-repository', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
-      const paths = (await productFileIndex(store, 'run-product')).map(file => file.path);
-      expect(paths).toContain('madarch/catalog.yaml');
-      expect(paths).toContain('workspace.yaml');
+      expect(await productFileIndex(store, 'run-product')).toEqual([]);
+      expect((await productFileIndex(store, 'repo')).map(file => file.path).sort()).toContain('src/a.ts');
+      expect(await repositoryFacts(store, 'run-product')).toBeNull();
     } finally {
       await store.close();
     }

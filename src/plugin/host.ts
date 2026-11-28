@@ -363,7 +363,10 @@ export class PluginHost {
       closureFolder: snapshot.folder,
       tools,
       filesystemInputs: withSpanSync('plugin.filesystem-inputs', { 'madarch.plugin.hash': closure.hash }, () => snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot)),
-      ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
+      // A caller that names its filesystem inputs names all of them: a supplied empty list is a run that reads no
+      // repository, and the product's checkout stays unmounted (ALX-1937). The single `/repo` mount is the direct
+      // read's own form (a page's blob read, `readBlobThroughCore`), which names no input list at all.
+      ...(readsRepository && this.options.filesystemInputs === undefined ? { repository: this.options.repository } : {}),
       // An ordinary plugin holds no environment: its sandbox root is empty, and the host's file system is not there for
       // it (decision 0038). A core plugin is trusted and reads its one source.
       emptyRoot: !this.environment.repository,

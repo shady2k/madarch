@@ -79,6 +79,16 @@ edges:
   const view=fillPlanView(agentManifest,folder,['cluster'],['cluster'],[],false,marks);
   expect(view.skipped.find(skip=>skip.kind==='cluster')?.reason).toBe(kubernetes?undefined:marks.find(mark=>mark.kind==='cluster')?.reason);
   expect(view.units.map(unit=>unit.kind)).toEqual(kubernetes?['cluster']:[]);
+  if(kubernetes){
+   const excluded = createGitSnapshotSource([{id:'fixture',root:folder,form:'product',commit}]);
+   const unread = await fillProductProfile(owner,contract,manifest,excluded,1);
+   expect(unread.find(mark=>mark.kind==='cluster')?.state).toBe('applicable');
+   const empty = await fillProductProfile(owner,contract,manifest,excluded,0);
+   expect(empty.find(mark=>mark.kind==='cluster')?.state).toBe('inapplicable');
+   expect(empty.find(mark=>mark.kind==='workload')?.state).toBe('inapplicable');
+   const cleared = await owner.run(tx=>readKindAssertions(tx,'vertex','profile',['languages'],{contract}));
+   expect(cleared[0]?.values['languages']).toEqual([]);
+  }
   if(!kubernetes){
    const records=await owner.run(tx=>readKindAssertions(tx,'vertex','system.kind-applicability',['state'],{contract}));
    expect(records.some(record=>record.selectedAssertions.some(assertion=>assertion.evidence.some(uid=>records.some(parent=>parent.assertions.some(a=>a.id===uid)))))).toBe(true);

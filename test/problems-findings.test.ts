@@ -11,7 +11,6 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
 import { collectProblems } from '../src/problems/index.js';
 import { defaultSettings } from '../src/problems/types.js';
-import { workingTreeFiles } from '../src/plugin/product-files.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const unusedOwner: DatabaseOwner = {
@@ -56,7 +55,6 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       ]) as unknown as GraphReader;
       const read = async (findingKinds?: readonly string[], dismissed?: ReadonlySet<string>) => await collectProblems({
         productFolder: product, owner: unusedOwner, graph,
-        files: workingTreeFiles(product),
         manifest: { file: '', semanticBindings: new Map([['problem-task', { kind: 'fixture.task', fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' }, edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } }, line: 1 }]]), roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
         ...(findingKinds === undefined ? {} : { findingKinds }),
         ...(dismissed === undefined ? {} : { dismissed }),
@@ -111,7 +109,6 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       } as unknown as GraphReader;
       const listing = await collectProblems({
         productFolder: product, owner: unusedOwner, graph,
-        files: workingTreeFiles(product),
         manifest: { file: manifest, semanticBindings: new Map([['problem-task', { kind: 'fixture.task', fields: { title: 'title', description: 'description', status: 'status', tracker: 'tracker', key: 'key' }, edges: { problems: { kind: 'fixture.task-problem', direction: 'from', line: 1 } }, line: 1 }]]), roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
         settings: { ...defaultSettings(), rules: {} as never },
         resolve: async () => { throw new Error('the fixture resolves no address'); }, findings: [],

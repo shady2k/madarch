@@ -37,7 +37,10 @@ export async function loadGraphSnapshot(reader: GraphReader, signal?: AbortSigna
     const page = await reader.list(kind, { limit: Number.MAX_SAFE_INTEGER });
     signal?.throwIfAborted();
     for (const entity of page.rows) {
-      nodes.push({ id: entity.key, versionId: entity.nodeIds[0] ?? entity.key, kind: entity.kind, label: entity.label, properties: entity.properties });
+      const commit = kind === GIT_KINDS.file
+        ? entity.evidence?.find(evidence => evidence.field === 'blob' && evidence.path === entity.properties.path)?.commit
+        : undefined;
+      nodes.push({ id: entity.key, versionId: entity.nodeIds[0] ?? entity.key, kind: entity.kind, label: entity.label, properties: commit == null ? entity.properties : { ...entity.properties, commit } });
     }
   }
   const edges: GraphEdgeItem[] = [];

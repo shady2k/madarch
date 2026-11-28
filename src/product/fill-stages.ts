@@ -223,7 +223,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present
-        ? { plugins: (pluginWiring={ ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.store === undefined ? {} : { traces: resolve(options.store, 'traces'), store: resolve(options.store) }), ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(options.unconfined === true ? { unconfined: true } : {}), ...(agentUsage === undefined ? {} : { agentUsage }) }) }
+        ? { plugins: (pluginWiring={ ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, expectedCodeRepositories: read.product ? identity.repos.length : 1, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.store === undefined ? {} : { traces: resolve(options.store, 'traces'), store: resolve(options.store) }), ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(options.unconfined === true ? { unconfined: true } : {}), ...(agentUsage === undefined ? {} : { agentUsage }) }) }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
@@ -331,7 +331,7 @@ interface PinnedRepositories {
  * the answer says what it did for it (a repository added before its first
  * commit must not break the product's wiki).
  */
-function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories {
+export function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories {
   // A store names one repository by one id, and two checkouts that share a name are two
   // repositories. The id of the product's own repository is decided in one place, which the fill,
   // the wiring that resolves a unit's folder and the MCP server all read (`productRepositoryId`).
@@ -347,6 +347,20 @@ function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories
     pins.push(pinOf(repo.name, 'code', root, repo.branch));
   }
   return { pins, unread };
+}
+
+/**
+ * The pins a code plugin and the fill agent read: every repository but the product's own checkout (ALX-1937, FR-005,
+ * FR-006). The checkout stays pinned because the manifests are read from the commit a run stands on, and it reaches no
+ * producer of code.
+ */
+export function codeRepositoryPins(pins: readonly RepositoryPin[]): readonly RepositoryPin[] {
+  return pins.filter((pin) => pin.form !== 'product');
+}
+
+/** The product's own pin, when the run pinned it: its manifests and its own files are read from that commit. */
+export function productRepositoryPin(pins: readonly RepositoryPin[]): RepositoryPin | undefined {
+  return pins.find((pin) => pin.form === 'product');
 }
 
 /** One repository pinned at the commit its checkout's HEAD names. */
@@ -497,7 +511,7 @@ function blobOf(pins: readonly RepositoryPin[], repository: string, path: string
 function snapshotOf(identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[]): RunSnapshot {
   // The folder a fill was asked for is the commit the run stands on: its own repository's pin, whether the folder is a
   // product repository or a checkout that is no product.
-  const own = pins.find((pin) => pin.form === 'product') ?? pins[0];
+  const own = productRepositoryPin(pins) ?? pins[0];
   if (own === undefined) {
     throw new Error(`the folder ${identity.folder} pins no repository, and every run stands on one: this is a defect of this module (src/product/fill-stages.ts, pinsOf)`);
   }

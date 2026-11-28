@@ -1406,11 +1406,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "src/plugin/product-source.ts",
-    "symbol": "/\\/+$/"
-  },
-  {
-    "rule": "no-regex",
     "file": "src/plugin/repository-snapshot.ts",
     "symbol": "/(\\S+)$/"
   },

@@ -139,7 +139,7 @@
     "test/fill-target-selection.test.ts": 5600,
     "test/fill-trace.test.ts": 33686,
     "test/fill-updates-before-fill.test.ts": 73200,
-    "test/fill-updates-run.test.ts": 255400,
+    "test/fill-updates-run.test.ts": 167430,
     "test/fill-updates.test.ts": 9900,
     "test/fill-wizard.test.ts": 6300,
     "test/fill-write-budget.test.ts": 1788,
@@ -406,7 +406,7 @@
     "test/semantic-role-protocol.test.ts": 1744,
     "test/server-sources.test.ts": 19859,
     "test/server-templates.test.ts": 166400,
-    "test/source-follows-fill.test.ts": 51400,
+    "test/source-follows-fill.test.ts": 171460,
     "test/source-response-contract.test.ts": 1730,
     "test/sources.test.ts": 5900,
     "test/starter-selection-roles.test.ts": 9400,
@@ -516,6 +516,8 @@
     "test/fill-run-recovery.test.ts": 705755,
     "test/fill-role-supervision.test.ts": 16919,
     "test/fill-role-service.test.ts": 146444,
-    "test/graph-mentions-hints.test.ts": 7993
+    "test/graph-mentions-hints.test.ts": 7993,
+    "test/plugin-release-upgrade.test.ts": 9427,
+    "test/product-catalogue-code-boundary.test.ts": 432630
   }
 }

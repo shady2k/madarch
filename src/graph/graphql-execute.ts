@@ -56,6 +56,8 @@ export interface GraphqlProduct {
   readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>;
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
+  readonly sourceProduct?: { readonly own: string; readonly linked: readonly string[] };
+  readonly readPinnedText?: (repository: string, path: string, exclude: readonly string[], range: import('../knowledge/product-pinned-source.js').SourceRange) => Promise<Record<string, unknown> | undefined>;
   readonly folder: string;
   /** One page of every log the product keeps, read from the machine's own files rather than the graph. */
   readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown;
@@ -340,7 +342,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText, product.logs);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText, product.logs, {}, product.sourceProduct, product.readPinnedText);
     const result = await execute({
       schema,
       document,

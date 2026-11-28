@@ -421,6 +421,25 @@ export function publicationDatabaseOwner(owner: DatabaseOwner, signal: AbortSign
  * One transaction closes removed declarations and states the entire valid catalogue atomically; the product's own page
  * is stated beside it, when the product's files name one and the graph holds none (the home page opens on the product).
  */
+/** Exact content attached to the selected published declaration, rather than the checkout's bytes. */
+export async function publishedSourceText(tx: SqlExecutor, manifest: KindsManifest, path: string): Promise<string | undefined> {
+  const template = productPageTemplate(manifest);
+  const contract = withAssertionContract(withManifestContract(graphContractOf(manifest)));
+  const declaration = path === KINDS_FILE ? { kind: 'manifest.catalogue', name: 'product', field: 'declaration' }
+    : path === WORKFLOWS_FILE ? { kind: 'manifest.workflow', field: 'declaration' }
+    : [...manifest.kindFiles ?? []].filter(([, file]) => file === path).sort(([a], [b]) => byCodePoint(a, b)).map(([name]) => ({ kind: 'manifest.kind', name, field: 'declaration' }))[0];
+  const rows = declaration === undefined
+    ? path.startsWith('templates/') && template.pathField !== undefined
+      ? (await readKindAssertions(tx, 'vertex', template.name, [template.bodyField, template.pathField], { contract })).filter(row => row.values[template.pathField!] === path)
+      : []
+    : (await readKindAssertions(tx, 'vertex', declaration.kind, [declaration.field], { contract })).filter(row => declaration.name === undefined || row.key.name === declaration.name);
+  const targets = [...new Set(rows.flatMap(row => row.selectedAssertions.filter(assertion => assertion.property === (declaration?.field ?? template.bodyField))
+    .flatMap(assertion => assertion.evidenceAttachments.filter(attachment => typeof attachment.key.digest === 'string').map(attachment => attachment.targetUid))))];
+  if (targets.length !== 1) return undefined;
+  const [snapshot] = await readKindAssertions(tx, 'vertex', 'system.content-snapshot', ['content'], { contract, subjectUids: targets });
+  return typeof snapshot?.values.content === 'string' ? snapshot.values.content : undefined;
+}
+
 /** All semantic inputs to publication; evidence for the page comes from catalogue snapshots, not entity.evidence. */
 export function publicationFingerprint(validated: ValidatedManifests, contract: GraphContract,
   entity: Pick<import('../product/manifest.js').ProductEntity, 'kind' | 'key' | 'values'> | null,

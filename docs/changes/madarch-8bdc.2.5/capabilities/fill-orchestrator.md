@@ -416,7 +416,7 @@ that name followed by `-product`, so two checkouts never share one store id.
 ### Scenario: two-repositories-one-name
 - Given: a product named `shop` that connects a code repository also named `shop`
 - When: a fill of it runs
-- Then: the product's own repository is pinned as `shop-product` and the connected one as `shop`, both are read, and neither is taken for the other
+- Then: the product's own repository is pinned as `shop-product` and the connected one as `shop`, so neither is taken for the other: the manifests are read from the first and the code from the second, and the product's own checkout reaches no code plugin and no agent
 
 ## Requirement: git-floor — The git a fill reads is named, and an older one is refused before the run stands up
 A fill shall read git and shall depend only on options a named version holds. Before a run stands up, the
