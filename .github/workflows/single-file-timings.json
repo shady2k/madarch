@@ -511,6 +511,8 @@
     "test/entity-cli-daemon.test.ts": 8495,
     "test/dispute-anchor-plan.test.ts": 20430,
     "test/logs-graphql.test.ts": 25580,
-    "test/fill-run-recovery.test.ts": 705755
+    "test/fill-run-recovery.test.ts": 705755,
+    "test/fill-role-supervision.test.ts": 16919,
+    "test/fill-role-service.test.ts": 146444
   }
 }
