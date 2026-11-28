@@ -11,6 +11,18 @@ write is Markdown in the product repository) and 0030 (the tip first, history fr
 point on 2026-11-01 (the record of the talk, with his words: docs/vision/architecture-talk-2026-11-01.md;
 reviewed by Codex the same day, docs/explorations/0033-codex-review-2026-11-01.md).
 
+Pending clarification/amendment, 2026-11-08: revised
+[0034](0034-human-and-agent-work-interfaces.md) records the maintainer's
+[PR 218 review](https://github.com/shady2k/madarch/pull/218#issuecomment-6705724890).
+Point 28 protects wiki/graph text; free human task creation is not an exception to
+that protection. Point 29's per-task human yes and human-only merge need the explicit
+proposed replacement by owner-managed queue order and product-configured A/B/C lanes.
+Work kinds use one uniform manifest rule and engine, not fixed starter statuses.
+[0035](0035-work-reservations-and-operation-sync.md) distinguishes non-expiring
+subtree work reservations from point 22's advisory verification and point 27's
+expiring worker leases. These proposals do not claim implemented behavior; the
+historical accepted decision below is preserved.
+
 ## Context and problem
 
 On 2026-11-01 the wiki's fill of madarch's own product (madarch-product with the madarch
