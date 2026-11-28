@@ -36,6 +36,16 @@
       "exit": "Rewrite test/agent-usage-page.test.ts to cover the behavior above, pass the rewritten file and its affected cases in the blocking suite, then remove this entry after a green single-file run at or below 30 seconds."
     },
     {
+      "path": "test/architecture-repository.test.ts",
+      "seconds": 33.971,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-x9a7.12",
+      "defect": "The one case scans the real repository and checks that the recorded architecture violations match the rules' findings. In GitHub Actions run 46085362733 it passed at 31,354 ms in shard 1 and at 33,971 ms in the standalone confirmation (1 pass, 0 fail, exit 0): https://github.com/shady2k/madarch/actions/runs/46085362733/job/140795177941.",
+      "replacement": "Run the complete repository check in its own required slow-files matrix job with one passing case while it exceeds the shard limit.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/architecture-repository.test.ts at or below 15 seconds, confirmed on a fresh run, with verified required-shard coverage. Keep the explicit required invocation in .github/workflows/ci.yml until then."
+    },
+    {
       "path": "test/catalog-check.test.ts",
       "seconds": 41.4,
       "reason": "green-slow",
