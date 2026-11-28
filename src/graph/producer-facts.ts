@@ -11,6 +11,8 @@ import { loadAssertionsBatch, type StoredAssertion } from './assertion-read.js';
 import { referencesOf, sdkReference } from './plugin-turns.js';
 
 type Identity = { id: number; key?: PluginKeyValues; from_node?: number; to_node?: number; discriminator?: string };
+/** A stored row as the identity statement names it: the sort decides which table holds it, and the kind its name. */
+type IdentityRow = Identity & { readonly sort: 'vertex' | 'edge'; readonly name: string };
 type EvidenceLink = { origin: string; id: number; kind: string; discriminator: string };
 
 /** The sequence one subject holds in the source's stream: its id and the last recorded sequence of that statement. */
@@ -69,7 +71,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
       const fields = kind.fields.filter(field => sort === 'edge' || !('key' in kind && kind.key.includes(field.name))).map(field => field.name);
       return { sort, name, fields };
     }));
-    const identities = requested.length === 0 ? [] : (await tx.query<Identity & { sort: 'vertex' | 'edge'; name: string }>(
+    const identities = requested.length === 0 ? [] : (await tx.query<IdentityRow>(
       `SELECT 'vertex' AS sort,k.name,n.id,n.key,NULL::bigint AS from_node,NULL::bigint AS to_node,NULL::text AS discriminator,n.uid
        FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=ANY($1::text[])
        UNION ALL
@@ -77,12 +79,19 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
        FROM edge n JOIN entity k ON k.id=n.entity_id WHERE k.name=ANY($2::text[])
        ORDER BY uid`, [kinds, edgeKinds])).rows;
     const identitiesByKind = new Map<string, Identity[]>();
-    const identityById = new Map(identities.map(row => [Number(row.id), row]));
+    // `node.id` and `edge.id` are independent sequences, so one number may name both a vertex and an edge. A subject's
+    // own sort decides which row answers for it: a map keyed by the bare id answers one sort with the other's row, and
+    // the sequence that subject holds then names the wrong kind, the wrong ends, or no row at all (0039 item 24).
+    const vertexIdentityById = new Map<number, IdentityRow>();
+    const edgeIdentityById = new Map<number, IdentityRow>();
     for (const row of identities) {
       const key = `${row.sort}:${row.name}`;
       const group = identitiesByKind.get(key);
       if (group === undefined) identitiesByKind.set(key, [row]); else group.push(row);
+      (row.sort === 'vertex' ? vertexIdentityById : edgeIdentityById).set(Number(row.id), row);
     }
+    const identityOf = (sort: 'vertex' | 'edge', sequence: SubjectSequence): IdentityRow =>
+      (sort === 'vertex' ? vertexIdentityById : edgeIdentityById).get(Number(sequence.id))!;
     // One statement for every requested kind, not one read per kind.
     const batches = requested.length === 0 ? [] : await loadAssertionsBatch(tx, requested.map(({ sort, name, fields }) => ({
       sort, kind: name, properties: ['$exists', ...fields], subjectIds: (identitiesByKind.get(`${sort}:${name}`) ?? []).map(row => Number(row.id)),
@@ -114,7 +123,7 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const sequences = await sourceSubjectSequences(tx, sourceUid, kinds, edgeKinds);
     const endIds = [...new Set([
       ...held.filter(item => item.sort === 'edge').flatMap(item => [Number(item.row.from_node), Number(item.row.to_node)]),
-      ...sequences.edges.flatMap(sequence => { const row = identityById.get(sequence.id)!; return [Number(row.from_node), Number(row.to_node)]; }),
+      ...sequences.edges.flatMap(sequence => { const row = identityOf('edge', sequence); return [Number(row.from_node), Number(row.to_node)]; }),
     ])];
     const ends = endIds.length === 0 ? [] : (await tx.query<{ id: number; kind: string; key: PluginKeyValues }>(
       'SELECT n.id,k.name AS kind,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.id=ANY($1::bigint[])', [endIds])).rows;
@@ -156,8 +165,8 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     // never touched.
     const returned = new Set(selected.map(item => `${item.sort}:${Number(item.row.id)}`));
     const subjectInScope = (sequence: SubjectSequence, sort: 'vertex' | 'edge'): boolean => {
-      const row = identityById.get(sequence.id)!;
-      return returned.has(`${sort}:${sequence.id}`) || inScope({ sort, name: row.name, row, own: [] });
+      const row = identityOf(sort, sequence);
+      return returned.has(`${sort}:${Number(sequence.id)}`) || inScope({ sort, name: row.name, row, own: [] });
     };
     const coveredSequences = { vertices: sequences.vertices.filter(sequence => subjectInScope(sequence, 'vertex')), edges: sequences.edges.filter(sequence => subjectInScope(sequence, 'edge')) };
     const idsByKind = new Map<string, Set<number>>();
@@ -186,9 +195,9 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
       if (ids === undefined) { ids = new Set(); storedIdsByKind.set(kind, ids); }
       ids.add(id);
     };
-    for (const sequence of coveredSequences.vertices) needStored(identityById.get(sequence.id)!.name, sequence.id);
+    for (const sequence of coveredSequences.vertices) needStored(identityOf('vertex', sequence).name, Number(sequence.id));
     for (const sequence of coveredSequences.edges) {
-      const row = identityById.get(sequence.id)!;
+      const row = identityOf('edge', sequence);
       for (const id of [Number(row.from_node), Number(row.to_node)]) needStored(byEnd.get(id)!.kind, id);
     }
     const storedRefs = new Map<string, Map<number, EntityRefDraft>>();
@@ -196,11 +205,11 @@ export async function producerFacts(owner: DatabaseOwner, contract: GraphContrac
     const storedReference = (kind: string, id: number) => sdkReference(storedRefs.get(kind)!.get(id)!);
     const revisions: PluginSubjectRevision[] = [
       ...coveredSequences.vertices.map(sequence => ({
-        subject: { sort: 'vertex' as const, ...storedReference(identityById.get(sequence.id)!.name, sequence.id) },
+        subject: { sort: 'vertex' as const, ...storedReference(identityOf('vertex', sequence).name, Number(sequence.id)) },
         recordedSequence: String(sequence.recordedSequence),
       })),
       ...coveredSequences.edges.map(sequence => {
-        const row = identityById.get(sequence.id)!;
+        const row = identityOf('edge', sequence);
         return {
           subject: { sort: 'edge' as const, kind: row.name, from: storedReference(byEnd.get(Number(row.from_node))!.kind, Number(row.from_node)), to: storedReference(byEnd.get(Number(row.to_node))!.kind, Number(row.to_node)), ...(row.discriminator === undefined || row.discriminator === '' ? {} : { discriminator: row.discriminator }) },
           recordedSequence: String(sequence.recordedSequence),
