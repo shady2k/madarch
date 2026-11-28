@@ -43,8 +43,10 @@ normalization keeps the two doors from disagreeing about what a refusal says, an
 covers a refusal that wrapped another, without touching the errors themselves. What makes a path the engine's is the
 root it starts with, so the two things that could hide a product behind an engine root are named: the folder the
 command asked about (a product inside the checkout) and the line number that ends a location (a checkout folder with a
-colon and a space in its path). A location whose line number is missing falls back to the first `: `, which is what an
-engine module's own message carries.
+colon and a space in its path). A location whose line number is missing — an engine module's own message — ends at its
+first `: ` when what follows is the reason, a phrase with spaces, and not another part of the path; and an error's name
+before that separator is a bare identifier like `TypeError`, so a checkout folder named `ScratchError` keeps its colon
+and space as part of the path.
 
 ## Changes to requirements
 

@@ -20,28 +20,53 @@ export function stripEngineLocation(message: string, product?: string): string {
   if (end < 0) return message;
   const location = message.slice(start, end).replaceAll('\\', '/');
   if (product !== undefined && underProduct(location, product)) return message;
-  return engineLocationRoots.some((root) => location.startsWith(root)) ? message.slice(end + 2) : message;
+  return isEngineRoot(location) ? message.slice(end + 2) : message;
 }
 
-/** The `TypeError: ` a message carries when it was made from an error's own text. */
+/**
+ * The `TypeError: ` a message carries when it was made from an error's own text. The name is a bare
+ * identifier, never a path: a checkout folder named `ScratchError` ends in `Error` too, and the
+ * colon and space that follow it are part of the path.
+ */
 function errorNameLength(message: string): number {
   const first = message.indexOf(': ');
-  return first > 0 && message.slice(0, first).endsWith('Error') ? first + 2 : 0;
+  if (first <= 0 || !message.slice(0, first).endsWith('Error')) return 0;
+  return isErrorName(message.slice(0, first)) ? first + 2 : 0;
+}
+
+/** True for a name like `TypeError`: letters, digits, `_` and `$` only, never a path separator. */
+function isErrorName(name: string): boolean {
+  for (const character of name) {
+    const letter = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+    if (!letter && !(character >= '0' && character <= '9') && character !== '_' && character !== '$') return false;
+  }
+  return name.length > 0;
 }
 
 /**
  * Where the message's leading location ends, when it has one: after its line number — `path:12:`,
  * or `path:12:4:` — because a checkout folder may itself hold a colon and a space, so the first
- * `: ` does not end the location. A location with no line number (an engine module's own) ends at
- * its first `: `.
+ * `: ` does not end the location. The location goes on through a segment that holds no space, a
+ * path's next part, and stops where a reason begins; an engine module's own message with no line
+ * number ends at its first `: ` instead.
  */
 function leadingLocationEnd(message: string, start: number): number {
   const first = message.indexOf(': ', start);
   if (first < 0) return -1;
-  for (let at = first; at >= 0; at = message.indexOf(': ', at + 2)) {
-    if (endsWithLineNumber(message.slice(start, at))) return at;
+  let end = first;
+  for (;;) {
+    if (endsWithLineNumber(message.slice(start, end))) return end;
+    const next = message.indexOf(': ', end + 2);
+    if (next < 0 || message.slice(end + 2, next).includes(' ')) break;
+    end = next;
   }
-  return engineLocationRoots.some((root) => message.slice(start, first).replaceAll('\\', '/').startsWith(root)) ? first : -1;
+  return isEngineRoot(message.slice(start, first)) ? first : -1;
+}
+
+/** True when the location names a folder of the engine: a bundle mount or a module of the checkout. */
+function isEngineRoot(location: string): boolean {
+  const normalized = location.replaceAll('\\', '/');
+  return engineLocationRoots.some((root) => normalized.startsWith(root));
 }
 
 /** True when the text ends with a line number, `:<digits>`, or the column after it, `:<digits>:<digits>`. */

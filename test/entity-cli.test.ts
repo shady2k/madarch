@@ -128,6 +128,17 @@ test('entity CLI refusals keep the reason and field and drop an engine location 
     const keptPlain = await entityCommand(['show', 'task', 'a1', '--product', nested], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
     expect(keptPlain).toBe(2);
     expect(printed.split('\n')[0]).toBe(named);
+    // An engine location with no line number ends at its own separator: the reason's numbered path stays.
+    const unnumbered = `${bundle}: could not read ${nested}/workspace.yaml:42: unexpected field`;
+    authored.mockRejectedValueOnce(new Error(unnumbered));
+    const reasonKept = await run(['show', 'task', 'a1'], nested);
+    expect(reasonKept.code).toBe(2);
+    expect(reasonKept.body.error.message).toBe(`could not read ${nested}/workspace.yaml:42: unexpected field`);
+    authored.mockRejectedValueOnce(new Error(unnumbered));
+    printed = '';
+    const reasonKeptPlain = await entityCommand(['show', 'task', 'a1', '--product', nested], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
+    expect(reasonKeptPlain).toBe(2);
+    expect(printed.split('\n')[0]).toBe(`could not read ${nested}/workspace.yaml:42: unexpected field`);
   } finally {
     authored.mockRestore(); status.mockRestore(); close.mockRestore();
   }
@@ -144,6 +155,11 @@ test('engine locations are stripped only where the location is the engine\'s', (
   expect(stripEngineLocation(`${join(src, 'fill', 'plugin-turns.ts')}: the unit is missing`)).toBe('the unit is missing');
   // A folder of the checkout holding a colon and a space does not end the location before its line.
   expect(stripEngineLocation(`${join(src, 'rev: two', 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
+  // An engine prefix with no line number ends at its own separator: the reason's numbered path stays.
+  expect(stripEngineLocation('/$bunfs/root/madarch: could not read /tmp/product/workspace.yaml:42: unexpected field'))
+    .toBe('could not read /tmp/product/workspace.yaml:42: unexpected field');
+  // A checkout folder whose last part ends in `Error` is a path, not the name of an error before it.
+  expect(stripEngineLocation(`${join(src, 'ScratchError: source', 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
   // The product asked about keeps its own file and line, even inside the engine's src/.
   const product = join(src, 'fixture: one');
   const named = `${join(product, 'workspace.yaml')}:1: the manifest holds 999 at "schemaVersion"`;
