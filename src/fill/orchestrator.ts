@@ -2397,6 +2397,13 @@ export async function recoverOrphanedRun(
  * skipped, the run reaches `failed` with the cause, the chain it held is settled, and — only when this call is the one
  * that moved the run — its end is written (ALX-2024). A caller that finds the run already terminal writes nothing and
  * publishes nothing: the end a run has is the answer, and a recovery racing a normal completion never replaces it.
+ *
+ * The whole cleanup is one write-locked transaction (ALX-2077): the unit skips, the run's `failed` step and the progress
+ * it records land together or not at all. Written unit by unit, a cleanup that refused at the run's own step left the run
+ * standing `running` with every unit skipped for ever (ALX-2025: 60 units skipped, the run and its chain stuck), and 60
+ * sequential transactions took longer than the 30 s a `fill-runs` claim lives without a heartbeat. The caller's
+ * `eligible` — the claim the attempt holds — is asked inside that same transaction, so an attempt whose claim lapsed
+ * writes none of it, and the answer says so (`lapsed`).
  */
 export async function failAndSettleRun(
   orchestrator: RunCleanupContext,
@@ -2406,38 +2413,33 @@ export async function failAndSettleRun(
     readonly cause?: 'process-ended' | 'initialization-failed';
     readonly detail: string;
     /**
-     * Asked again inside every write-locked step, so a reason the caller read outside the lock — "nothing holds this run"
-     * — is re-proved under the fence that serialises the run's writes before anything is skipped or failed.
+     * Asked inside the write-locked transaction that holds the whole cleanup, so a reason the caller read outside the
+     * lock — "nothing holds this run" — is re-proved under the fence that serialises the run's writes before anything is
+     * skipped or failed. A `false` answer says the attempt that called this no longer owns the run (`lapsed`).
      */
     readonly eligible?: (tx: SqlExecutor) => Promise<boolean>;
   },
-): Promise<{ readonly run: RunRecord | null; readonly transitioned: boolean; readonly ended: boolean }> {
+): Promise<{ readonly run: RunRecord | null; readonly transitioned: boolean; readonly ended: boolean; readonly lapsed: boolean }> {
   const at = options.at ?? orchestrator.clock();
   const cause = options.cause ?? 'process-ended';
-  for (const candidate of await readRunUnits(orchestrator.database, options.runId)) {
-    await controlWrite(orchestrator, options.runId, async (tx, events) => {
-      const run = await readRunIn(tx, options.runId);
-      if (!run || isFinalRunState(run.state)) return;
-      if (options.eligible !== undefined && !(await options.eligible(tx))) return;
-      const unit = (await readRunUnitsIn(tx, options.runId)).find(unit => unit.unitId === candidate.unitId && unit.generation === candidate.generation);
-      if (!unit || isFinalUnitState(unit.state)) return;
-      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'skip', at, cause } });
-      if (step.ok) events.push(await appendProgressIn(tx, { runId: options.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-skipped', summary: `${unit.unitId} is skipped: ${cause}` }));
-    });
-  }
   const outcome = await controlWrite(orchestrator, options.runId, async (tx, events) => {
     const run = await readRunIn(tx, options.runId);
-    if (!run || isFinalRunState(run.state)) return { run, transitioned: false };
-    if (options.eligible !== undefined && !(await options.eligible(tx))) return { run, transitioned: false };
+    if (!run || isFinalRunState(run.state)) return { run, transitioned: false, lapsed: false };
+    if (options.eligible !== undefined && !(await options.eligible(tx))) return { run, transitioned: false, lapsed: true };
+    for (const unit of await readRunUnitsIn(tx, options.runId)) {
+      if (isFinalUnitState(unit.state)) continue;
+      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'skip', at, cause } });
+      if (step.ok) events.push(await appendProgressIn(tx, { runId: options.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-skipped', summary: `${unit.unitId} is skipped: ${cause}` }));
+    }
     const failed = await advanceRunIn(tx, { runId: run.runId, event: { type: 'fail', at, cause, detail: options.detail } });
-    if (!failed.ok) return { run, transitioned: false };
+    if (!failed.ok) return { run, transitioned: false, lapsed: false };
     events.push(await appendProgressIn(tx, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: `the run failed: ${options.detail}` }));
-    return { run: failed.record, transitioned: true };
+    return { run: failed.record, transitioned: true, lapsed: false };
   });
-  if (!outcome.transitioned || outcome.run === null) return { run: outcome.run, transitioned: false, ended: false };
+  if (!outcome.transitioned || outcome.run === null) return { run: outcome.run, transitioned: false, ended: false, lapsed: outcome.lapsed };
   await settleChain(orchestrator, outcome.run.runId, await runEvidence(orchestrator, outcome.run.runId));
   const ended = await writeFillEndIfAbsent(orchestrator.database, { runId: outcome.run.runId, state: 'failed', message: options.detail });
-  return { run: outcome.run, transitioned: true, ended };
+  return { run: outcome.run, transitioned: true, ended, lapsed: false };
 }
 
 /**

@@ -16,7 +16,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
-import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
+import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun, startClaimHeartbeat } from '../fill/run-jobs.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { failRequestedFill, readFillEnd, readRunControl, writeFillEnd } from '../graph/fill-orchestration.js';
 import { failAndSettleRun, type RunCleanupContext } from '../fill/orchestrator.js';
@@ -251,7 +251,16 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
           return null;
         });
         if (job === null) continue;
-        await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => { await runOne(options, state, held, job, log); });
+        // One job never ends the role: an unexpected error — a store that closed under the run, a statement the queue
+        // refused — is said aloud and the role asks for the next job (ALX-2077). A claim that lapsed is not an error at
+        // all: `runOne` handles it as the normal outcome it is, and never throws on it.
+        await withSpan('fill.role.run', { 'madarch.product': job.data.product, 'madarch.run': job.data.runId }, async () => {
+          try {
+            await runOne(options, state, held, job, log);
+          } catch (error) {
+            log(`madarch fill: the ${job.data.product} run ${job.data.runId} could not be settled: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        });
       }
       await Bun.sleep(250);
     }
@@ -281,9 +290,30 @@ async function endExhausted(held: Watched, job: NonNullable<Awaited<ReturnType<t
   await failAndSettleRun(cleanup, { runId: data.runId, detail: message });
 }
 
-/** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
+/**
+ * Runs one claimed fill while this attempt owns the `fill-runs` job it was handed (ALX-2077). Its heartbeat is the
+ * attempt's own and spans everything the attempt does with the job — the store's open, the run, the cleanup a failed run
+ * leaves, the end's publication and the queue's settlement — so the 30 s a claim lives without a touch never runs out
+ * under a cleanup the job's next attempt would then be handed (measured on the ALX-1717 stand: the heartbeat stopped with
+ * `service.run`, the cleanup took longer than 30 s, and the sweep gave the job to an attempt the stale one then wrote
+ * under). A role that had no claim of its own, or a direct `startKnowledgeFill` caller, keeps the run's own heartbeat
+ * (`beginRunHeartbeat`, `src/fill/orchestrator.ts`).
+ */
 async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
+  const heartbeat = startClaimHeartbeat(held.queue, job);
+  try {
+    await runClaimedFill(options, state, held, job, log);
+  } finally {
+    // Nothing touches a job this attempt settled: the beat stops before the loop asks for the next one.
+    await heartbeat.stop();
+  }
+}
+
+/** One claimed fill's own work: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
+async function runClaimedFill(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
+  /** Whether this job's attempt is still the one the queue hands out: another attempt's job writes nothing of this one. */
+  const claimHeld = async (): Promise<boolean> => await held.owner.run(async (tx) => await held.queue.isActive(job, tx)).catch(() => false);
   const metadata=async(store:StoreOwner):Promise<FillStateDatabase>=>await fillDatabaseOf(store, data.product);
   // A redelivery after the end was published acknowledges that same run, never replaces its result.
   if (await readFillEnd(held.owner, data.runId) !== null) {
@@ -294,9 +324,10 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
   const read = readProduct(productFolder);
   if (!read.ok) {
     // The run's end is written even when no run started (madarch-8bdc.9): the api role that pressed the fill answers
-    // `failed` with this message, where a missing end would leave it saying `running` for ever.
+    // `failed` with this message, where a missing end would leave it saying `running` for ever. An attempt that no longer
+    // holds the job writes none of it: the end is the job's new holder's answer (ALX-2077).
     const message = `${read.file}:${read.line}: ${read.message}`;
-    await writeFillEnd(await metadata(held.owner), { runId: data.runId, state: 'failed', message }).catch(() => undefined);
+    if (await claimHeld()) await writeFillEnd(await metadata(held.owner), { runId: data.runId, state: 'failed', message }).catch(() => undefined);
     await settleFillRun(held.queue, job, { ok: false, message });
     return;
   }
@@ -308,7 +339,8 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     await owner.ready;
   } catch (error) {
     const message = `the store ${held.storeFolder} could not be opened: ${error instanceof Error ? error.message : String(error)}`;
-    if (await settleFillRun(held.queue, job, { ok: false, message }) === 'failed') await endExhausted(held, job, message).catch(() => undefined);
+    const settled = await settleFillRun(held.queue, job, { ok: false, message });
+    if (settled === 'failed') await endExhausted(held, job, message).catch(() => undefined);
     return;
   }
   let run: Awaited<ReturnType<typeof startKnowledgeFill>> | undefined;
@@ -357,13 +389,20 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     }
     const ended = result.ok || (await readFillEnd(held.owner, data.runId).catch(() => null)) !== null;
     const outcome = result.retryable === true || !ended ? { ok: false, ...(result.message === undefined ? {} : { message: result.message }) } : { ok: true };
-    if (await settleFillRun(held.queue, job, outcome) === 'failed') await endExhausted(held, job, result.message ?? `the fill of ${data.product} ended without an answer`).catch(() => undefined);
+    const settled = await settleFillRun(held.queue, job, outcome);
+    // A claim that lapsed settles nothing: the job, the run and its end are the attempt that holds it now (ALX-2077).
+    if (settled === 'lapsed') {
+      log(`madarch fill: ${data.product} run ${data.runId} is another attempt's now: nothing was settled`);
+      return;
+    }
+    if (settled === 'failed') await endExhausted(held, job, result.message ?? `the fill of ${data.product} ended without an answer`).catch(() => undefined);
     log(`madarch fill: ${data.product} run ${data.runId} ${result.ok ? 'filled' : `failed: ${result.message ?? ''}`}`);
   } catch (error) {
     await run?.close().catch(() => undefined);
     await owner.close().catch(() => undefined);
     const message = error instanceof Error ? error.message : String(error);
-    if (await settleFillRun(held.queue, job, { ok: false, message }) === 'failed') await endExhausted(held, job, message).catch(() => undefined);
+    const settled = await settleFillRun(held.queue, job, { ok: false, message });
+    if (settled === 'failed') await endExhausted(held, job, message).catch(() => undefined);
   }
 }
 

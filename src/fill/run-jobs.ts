@@ -6,7 +6,7 @@
  * adapter), and the singleton key holds one unfinished job per product, so a second press while a run is under way
  * creates nothing.
  */
-import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA, holdsUnfinishedIn } from '../adapters/pg-boss-queue.js';
+import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA, holdsUnfinishedIn, JobClaimLapsedError } from '../adapters/pg-boss-queue.js';
 import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
 import { RUN_JOB_HEARTBEAT_SECONDS, RUN_JOB_LEASE_SECONDS } from './queue-limits.js';
@@ -118,17 +118,60 @@ export async function fillRunHeldElsewhere(owner: QueueOwner, productFolder: str
   }
 }
 
+/** How often the attempt that holds a `fill-runs` job touches its claim: a third of the 30 s an untouched claim lives. */
+const CLAIM_HEARTBEAT_MS = RUN_JOB_HEARTBEAT_SECONDS * 1000 / 3;
+
+/** One live heartbeat of a claimed job, stopped by the attempt that started it. */
+export interface ClaimHeartbeat {
+  /** Stops the beat and waits for one already sent, so nothing touches a job the caller has settled. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Keeps one claimed `fill-runs` job alive for as long as the attempt that holds it runs (ALX-2077): from the claim through
+ * the store's setup, the run, the cleanup of a run that failed and the queue's settlement. The queue treats a claim it has
+ * not heard from in 30 s as dead and hands the job to its next attempt, so an attempt that only beat while its fill drove
+ * lost its claim to the queue's own sweep during the cleanup — and then wrote its units, its run, its chain and its end
+ * under the feet of the attempt the queue had already given them to. The beat is the attempt's own: once it stops, or the
+ * claim lapses, the queue is the only one that decides who holds the job.
+ */
+export function startClaimHeartbeat(queueService: QueueService, job: ClaimedJob<unknown>, intervalMs: number = CLAIM_HEARTBEAT_MS): ClaimHeartbeat {
+  let beating: Promise<void> | undefined;
+  const beat = (): void => {
+    // A beat that fails — the claim lapsed, or the store closed — answers `false` or throws and is not retried here: the
+    // fence that decides whether this attempt may still write is the settlement's own, and a failed beat is its evidence.
+    beating = queueService.heartbeat(job.queue, job).then(() => undefined, () => undefined).finally(() => { beating = undefined; });
+  };
+  const timer = setInterval(beat, intervalMs);
+  timer.unref?.();
+  return {
+    async stop(): Promise<void> {
+      clearInterval(timer);
+      await beating;
+    },
+  };
+}
+
 /**
  * Settles one claimed fill: a run that ended settles the job done, and one whose attempt gave up is retried by the queue.
  * The answer says which happened, because a job whose retries are spent is the last attempt the run gets and what it
- * leaves behind is that process's to end (ALX-2024).
+ * leaves behind is that process's to end (ALX-2024). `lapsed` is the third answer (ALX-2077): the attempt named is no
+ * longer the one the queue hands out, so this attempt settled nothing and it is the new holder's to settle.
  */
-export async function settleFillRun(queue: QueueService, job: ClaimedJob<FillRunJob>, outcome: { readonly ok: boolean; readonly message?: string }): Promise<'completed' | FailOutcome> {
+export async function settleFillRun(queue: QueueService, job: ClaimedJob<FillRunJob>, outcome: { readonly ok: boolean; readonly message?: string }): Promise<'completed' | FailOutcome | 'lapsed'> {
   return await withSpan('fill.job.settle', { 'madarch.run': job.data.runId, 'madarch.outcome': outcome.ok ? 'done' : 'failed' }, async () => {
     if (outcome.ok) {
-      await queue.complete(FILL_RUN_QUEUE, job, { runId: job.data.runId });
-      return 'completed' as const;
+      // A done settlement the queue refuses wrote nothing either: the claim lapsed, and the attempt that holds the job now
+      // owns its answer.
+      return await queue.complete(FILL_RUN_QUEUE, job, { runId: job.data.runId }) ? 'completed' as const : 'lapsed' as const;
     }
-    return await queue.fail(FILL_RUN_QUEUE, job, outcome.message ?? `the fill of ${job.data.product} ended without an answer`);
+    try {
+      return await queue.fail(FILL_RUN_QUEUE, job, outcome.message ?? `the fill of ${job.data.product} ended without an answer`);
+    } catch (error) {
+      // The queue's own refusal is the attempt that lapsed its claim saying so: this attempt writes nothing more, and the
+      // role keeps serving (ALX-2077). Anything else is still the unexpected error the worker surfaces.
+      if (error instanceof JobClaimLapsedError) return 'lapsed' as const;
+      throw error;
+    }
   });
 }

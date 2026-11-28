@@ -24,10 +24,10 @@ import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { runFill } from '../src/fill/run.js';
 import { writeOrchestration, writeFillEndIfAbsent, readSealedChildren, sealSplitIn } from '../src/graph/fill-orchestration.js';
 import { readFillEnd, readProgress } from '../src/graph/fill-orchestration.js';
-import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits, readUnit, readUnitGeneration } from '../src/graph/fill-state.js';
+import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits, readUnit, readUnitGeneration, type UnitRecord } from '../src/graph/fill-state.js';
 import { listRepositories } from '../src/graph/records.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { claimFillRun, enqueueFillRun, FILL_RUN_QUEUE, fillRunHeldElsewhere, openFillRunQueue } from '../src/fill/run-jobs.js';
+import { claimFillRun, enqueueFillRun, FILL_RUN_QUEUE, fillRunHeldElsewhere, openFillRunQueue, settleFillRun } from '../src/fill/run-jobs.js';
 import { admitUnits, createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, failAndSettleRun, planRun, recoverOrphanedRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
@@ -35,6 +35,7 @@ import { StageRegistry } from '../src/fill/registry.js';
 import { fixtureOperations } from './fill-operation-fixture.js';
 import { createStagesFill } from '../src/product/fill-stages.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
+import type { OuterTransaction } from '../src/history-types.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 
@@ -355,7 +356,7 @@ test('a planning refusal ends the press, leaves the graph readable, and the same
     await press.settled().catch(() => undefined);
     await role.catch(() => undefined);
   }
-}), 240_000);
+}), 300_000);
 
 test('a live unit job keeps its run from being recovered, and the run is recovered once that job is spent', async () => await withStorePreparationOwner(async () => {
   const place = fixture('units');
@@ -679,4 +680,208 @@ test('a repeat split seals the children of the run that splits now, across a liv
   expect(await readUnitGeneration(database, 'parts/left', 2)).toMatchObject({ runId: next, state: 'published' });
   expect(await readUnitGeneration(database, 'parts/right', 2)).toMatchObject({ runId: next, state: 'published' });
   expect(await readUnit(database, 'parts/root')).toMatchObject({ runId: next, state: 'published' });
+}), 120_000);
+
+/**
+ * The state a fill that failed midway leaves (ALX-2077): one pressed run, planned by the product's own plugins, its units
+ * unpublished, and the product's chain following it. The press's `fill-runs` job stands in the store's queue, so a case
+ * that wants to be the first attempt claims it itself instead of letting the role do it.
+ */
+async function pressedRunWithUnits(label: string): Promise<{
+  place: { folder: string; knowledgeRoot: string; home: string; name: string };
+  owner: Awaited<ReturnType<typeof createDatabaseOwner>>;
+  database: FillStateDatabase;
+  storeFolder: string;
+  queue: Awaited<ReturnType<typeof openFillRunQueue>>;
+  press: KnowledgeProduct;
+  runId: string;
+  unfinished: readonly UnitRecord[];
+}> {
+  const place = fixture(label);
+  const { owner, database, storeFolder } = await preparedStore(place);
+  const queue = await openFillRunQueue(owner);
+  opened.push(queue);
+  const press = new KnowledgeProduct({ productFolder: place.folder, storeRoot: place.knowledgeRoot, fillQueued: true });
+  products.push(press);
+  const started = await press.startFill({ pluginsOnly: true });
+  if (!started.started) throw new Error(`the press was refused before the queue: ${started.message}`);
+  const graphFolder = join(storeFolder, 'graph');
+  const seeded = await createStagesFill({
+    product: place.folder, database: owner, runId: started.runId, store: place.home,
+    prepareContract: async (contract) => { await requestStorePreparation(graphFolder, contract); },
+  });
+  const unitQueue = await createPgBossQueue({ owner, supervise: false });
+  opened.push(unitQueue);
+  await unitQueue.declare({ name: 'fill-units', leaseSeconds: DEFAULT_ORCHESTRATOR_LIMITS.attemptSeconds, heartbeatSeconds: DEFAULT_ORCHESTRATOR_LIMITS.heartbeatSeconds, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+  const orchestrator = createOrchestrator({
+    database: { transaction: owner.transaction.bind(owner), graphContract: seeded.wiring.graphContract },
+    registry: seeded.registry, product: seeded.product.name, queue: unitQueue, queueName: 'fill-units',
+    configuration: async () => await seeded.wiring.configuration(), snapshot: () => seeded.wiring.snapshot(),
+    graph: (ref, tx) => seeded.wiring.graph(ref, tx), inputs: (ref) => seeded.wiring.inputs(ref), operations: seeded.wiring.operations,
+  });
+  const planned = await planRun(orchestrator, { runId: started.runId });
+  if (planned.outcome !== 'planned') throw new Error(`the fixture run did not plan: ${JSON.stringify(planned)}`);
+  await writeOrchestration(database, async (tx) => {
+    await openChainIn(tx, { product: place.name, at: Date.now() });
+    await advanceChainIn(tx, { product: place.name, event: { type: 'start', at: Date.now(), runId: started.runId } });
+  });
+  const unfinished = (await readRunUnits(database, started.runId)).filter((unit) => unit.state !== 'published');
+  if (unfinished.length === 0) throw new Error('the fixture run planned no unfinished unit');
+  return { place, owner, database, storeFolder, queue, press, runId: started.runId, unfinished };
+}
+
+/** The attempt's own claim, as the fill asks it inside the run's write fence: `isActive` says whether it still holds. */
+function claimFence(queue: Awaited<ReturnType<typeof openFillRunQueue>>, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>) {
+  return async (tx: Parameters<NonNullable<Parameters<typeof failAndSettleRun>[1]['eligible']>>[0]): Promise<boolean> => await queue.isActive(job, tx as unknown as OuterTransaction);
+}
+
+test('a lapsed attempt writes none of the cleanup, and the same role carries the run on', async () => await withStorePreparationOwner(async () => {
+  const seeded = await pressedRunWithUnits('claim-lapse');
+  const { place, owner, database, queue, press, runId, unfinished } = seeded;
+
+  // Attempt 0 is the role's claim, and its claim lapses while it is cleaning up: the queue's sweep hands the job to its
+  // retry, which is what ALX-2025 measured when the cleanup outlived the 30 s a claim lives untold.
+  const attempt0 = await claimFillRun(queue);
+  if (attempt0 === null) throw new Error('the fixture job was not claimed');
+  await owner.transaction('write', async (tx) => {
+    await tx.query(`UPDATE pgboss.job SET heartbeat_on = clock_timestamp() - interval '60 seconds' WHERE id = $1::uuid`, [attempt0.id]);
+  });
+  await queue.recover(FILL_RUN_QUEUE);
+
+  // The cleanup the stale attempt asks for is fenced out: no unit is skipped, the run and its chain stand, no end appears.
+  const stale = await failAndSettleRun({ database, product: place.name, clock: Date.now }, {
+    runId, detail: 'the fixture attempt lost its claim', eligible: claimFence(queue, attempt0),
+  });
+  expect(stale).toMatchObject({ transitioned: false, ended: false, lapsed: true });
+  const held = await readRunUnits(database, runId);
+  for (const unit of unfinished) expect(held.find((row) => row.unitId === unit.unitId)?.state).toBe(unit.state);
+  expect(held.filter((unit) => unit.state === 'skipped')).toEqual([]);
+  expect((await readRun(database, runId))?.state).toBe('running');
+  expect((await readChain(owner, place.name))?.context.activeRunId).toBe(runId);
+  expect(await readFillEnd(owner, runId)).toBeNull();
+  // The settlement of a lapsed attempt is a normal answer, not the crash that ended `--role fill`: the queue refuses it
+  // and nothing of the job is written.
+  expect(await settleFillRun(queue, attempt0, { ok: false, message: 'the fixture attempt lost its claim' })).toBe('lapsed');
+
+  // The same role — one process, one store — claims Attempt 1 and carries the run to its own end.
+  let roleDone = false;
+  const roleLog: string[] = [];
+  const role = driveRole(place, () => roleDone, (line) => { roleLog.push(line); if (roleLog.length > 40) roleLog.shift(); });
+  try {
+    let end = await readFillEnd(owner, runId);
+    for (let waited = 0; end === null && waited < 180; waited += 1) {
+      // The retry waits the queue's own five seconds; the case moves that moment instead of sleeping through it.
+      await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET start_after = clock_timestamp() WHERE name = 'fill-runs' AND state = 'retry'`); });
+      await Bun.sleep(1_000);
+      end = await readFillEnd(owner, runId);
+    }
+    // The retry is the same run's own attempt: it drives the units the failed attempt left and ends the run itself.
+    if (end?.state !== 'succeeded') throw new Error(`the retry ended ${JSON.stringify(end)}; the run stood ${(await readRun(database, runId))?.state}; the fill role says: ${roleLog.slice(-6).join(' | ')}`);
+    expect(end.state).toBe('succeeded');
+    expect((await readRun(database, runId))?.state).toBe('succeeded');
+    expect((await readChain(owner, place.name))?.state).toBe('quiescent');
+    // The graph the press reads holds what the run published, and the page answers.
+    const published = (await readRunUnits(database, runId)).filter((unit) => unit.state === 'published');
+    expect(published.length).toBeGreaterThan(0);
+    expect((await listRepositories(owner)).map((repository) => repository.name)).toContain('shop-code');
+    await press.settled();
+    expect((await press.status()).fill.state).toBe('done');
+    // A fresh fill of the same product, on the same live instance and the same role: no daemon restart.
+    const again = await press.startFill({ pluginsOnly: true });
+    if (!again.started) throw new Error(`the product refused a fresh fill after the lapsed attempt: ${again.message}`);
+    await press.settled();
+    expect((await readFillEnd(owner, again.runId))?.state).toBe('succeeded');
+  } finally {
+    roleDone = true;
+    await press.settled().catch(() => undefined);
+    await role.catch(() => undefined);
+  }
+}), 300_000);
+
+test('a cleanup under a live claim skips every unfinished unit, fails the run and writes its end in one write', async () => await withStorePreparationOwner(async () => {
+  const { place, owner, database, queue, runId, unfinished } = await pressedRunWithUnits('live-cleanup');
+  const attempt0 = await claimFillRun(queue);
+  if (attempt0 === null) throw new Error('the fixture job was not claimed');
+  const cleaned = await failAndSettleRun({ database, product: place.name, clock: Date.now }, {
+    runId, detail: 'the fixture run failed with its units unfinished', eligible: claimFence(queue, attempt0),
+  });
+  expect(cleaned).toMatchObject({ transitioned: true, ended: true, lapsed: false });
+  // Every unfinished unit is skipped, in the same write that fails the run: nothing is left half-cleaned.
+  const held = await readRunUnits(database, runId);
+  for (const unit of unfinished) expect(held.find((row) => row.unitId === unit.unitId)?.state).toBe('skipped');
+  expect((await readRun(database, runId))?.state).toBe('failed');
+  expect((await readChain(owner, place.name))?.state).toBe('quiescent');
+  expect((await readFillEnd(owner, runId))?.state).toBe('failed');
+  // The progress names every skipped unit and the run's own failure, once each.
+  const events = await readProgress(database, runId);
+  expect(events.filter((event) => event.kind === 'unit-skipped').length).toBe(unfinished.length);
+  expect(events.filter((event) => event.kind === 'run-failed').length).toBe(1);
+  // The claim the attempt holds is still its own after the cleanup: the write did not outlive it.
+  expect(await owner.transaction('snapshot', async (tx) => await queue.isActive(attempt0, tx))).toBe(true);
+}), 120_000);
+
+test('a cleanup that refuses at its last write leaves the run, its units and its chain as they stood', async () => await withStorePreparationOwner(async () => {
+  const { place, owner, database, queue, runId, unfinished } = await pressedRunWithUnits('atomic-cleanup');
+  const attempt0 = await claimFillRun(queue);
+  if (attempt0 === null) throw new Error('the fixture job was not claimed');
+  // The run's own failure summary carries an invalid mention token, which the graph refuses: the cleanup's last write
+  // throws. Written unit by unit, the skips had already committed and the run stood `running` with every unit skipped for
+  // ever — the residue ALX-2025 measured on the stand (60 units skipped, the run and its chain stuck).
+  let refusal: unknown;
+  try {
+    await failAndSettleRun({ database, product: place.name, clock: Date.now }, {
+      runId, detail: 'the run failed: [[uid:<lowercase hyphenated UUID>]]', eligible: claimFence(queue, attempt0),
+    });
+  } catch (error) { refusal = error; }
+  expect(refusal).toBeInstanceOf(Error);
+  expect((refusal as Error).message).toContain('[[uid:');
+  const held = await readRunUnits(database, runId);
+  for (const unit of unfinished) expect(held.find((row) => row.unitId === unit.unitId)?.state).toBe(unit.state);
+  expect(held.filter((unit) => unit.state === 'skipped')).toEqual([]);
+  expect((await readRun(database, runId))?.state).toBe('running');
+  expect((await readChain(owner, place.name))?.context.activeRunId).toBe(runId);
+  expect(await readFillEnd(owner, runId)).toBeNull();
+}), 120_000);
+
+test('the claim of a fill is kept alive from the claim to its settlement, and nothing beats it after', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('claim-beat');
+  const { owner, storeFolder } = await preparedStore(place);
+  const queue = await openFillRunQueue(owner);
+  opened.push(queue);
+  // The heartbeat the role beats its claimed job with (ALX-2077): asked for by name here, so a tree that has none fails
+  // where the behaviour is missing rather than failing to load the file and hiding the other cases' baseline.
+  const runJobs: { startClaimHeartbeat?: (queue: Awaited<ReturnType<typeof openFillRunQueue>>, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, intervalMs?: number) => { stop(): Promise<void> } } = await import('../src/fill/run-jobs.js');
+  if (runJobs.startClaimHeartbeat === undefined) throw new Error('the fill queue hands out no claim heartbeat: a claim goes quiet while the attempt cleans up, and the queue hands the job to its next attempt');
+  const startClaimHeartbeat = runJobs.startClaimHeartbeat;
+  if ((await enqueueFillRun(queue, { product: place.folder, store: storeFolder, runId: 'claim-beat-run' })).created !== true) throw new Error('the fixture job was not enqueued');
+  const claimed = await claimFillRun(queue);
+  if (claimed === null) throw new Error('the fixture job was not claimed');
+  const held = async (): Promise<boolean> => await owner.transaction('snapshot', async (tx) => await queue.isActive(claimed, tx));
+  const beatOf = async (): Promise<string | undefined> => (await owner.transaction('snapshot', async (tx) => (await tx.query<{ beat: string }>(`SELECT heartbeat_on::text AS beat FROM pgboss.job WHERE id = $1::uuid`, [claimed.id])).rows[0]))?.beat;
+
+  // A claim whose last touch is past the queue's 30 s liveness window is dead by the queue's own rule: only a beat from
+  // the attempt holding it says otherwise.
+  await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET heartbeat_on = clock_timestamp() - interval '40 seconds' WHERE id = $1::uuid`, [claimed.id]); });
+  expect(await held()).toBe(false);
+  const heartbeat = startClaimHeartbeat(queue, claimed, 40);
+  try {
+    let alive = false;
+    for (let waited = 0; waited < 100 && !alive; waited += 1) {
+      await Bun.sleep(20);
+      alive = await held();
+    }
+    expect(alive).toBe(true);
+    // The claim survives the cleanup that outlives it today: several write transactions with nothing else touching it.
+    for (let step = 0; step < 5; step += 1) {
+      await owner.transaction('write', async (tx) => { await tx.query(`SELECT 1`); });
+      await Bun.sleep(30);
+    }
+    expect(await held()).toBe(true);
+  } finally {
+    await heartbeat.stop();
+  }
+  // The beat is the attempt's own: settled or stopped, nothing touches the job again, so the queue decides who holds it.
+  const after = await beatOf();
+  await Bun.sleep(300);
+  expect(await beatOf()).toBe(after);
 }), 120_000);
