@@ -223,23 +223,32 @@ jobs:
             exit 1
           fi
 
-  # The twelve files test/slow-files.json records as green-slow that this matrix
-  # runs, measured over 30 seconds alone on a runner, run here one job each. Ten
-  # are the speed-up stream's: nine of them measured alone in three samples of the
-  # F4 tree (runs 46044618928, 46045922097 and 46046625374; every entry also names
-  # its earlier run), and test/catalogue-kind-relations.test.ts is listed again
-  # because its two shard samples were above the bound (33 641 ms in run
-  # 46063935769 and 34 019 ms in run 46078818727) and its complete file measured
-  # 37 781 ms alone in the second run's confirmation. The eleventh,
+  # The twelve green-slow files test/slow-files.json lists that this matrix runs,
+  # measured over 30 seconds alone on a runner, run here one job each. Nine are the
+  # speed-up stream's: they measured alone in three samples of the F4 tree (runs
+  # 46044618928, 46045922097 and 46046625374; every entry also names its earlier
+  # run), and eight of the nine were above the bound in every sample. The ninth,
+  # test/agent-fill-e2e.test.ts, measured 24.18 s, 36.96 s and 35.76 s — median
+  # 35.76 s, both of its cases in every sample — so its job rests on that median and
+  # on its shard sample, not on an arithmetic impossibility. The tenth,
   # test/fill-trace.test.ts, is the status-work quarantine work's (33.686 s alone
-  # and 30.011 s in shard 2, run 46072517676).
-  # Eight of those nine were above the bound in all three samples; the
-  # median of agent-fill-e2e was above it while one of its samples was inside, so
-  # it needs a fresh confirmation before it can return to the shards (it was green
-  # alone in run 46063935769, at 27.30 s). test/status-work.test.ts runs its two
-  # active cases here, the third being in the repository's case-level quarantine
-  # (madarch-stm0.13, docs/quarantine.md). test/architecture-repository.test.ts
-  # passed in 33.971 s alone and 31.354 s in shard 1 of run 46085362733.
+  # and 30.011 s in shard 2, run 46072517676); the eleventh,
+  # test/fill-run-recovery.test.ts, the fill-retry work's; the twelfth,
+  # test/architecture-repository.test.ts, passed in 33.971 s alone and 31.354 s in
+  # shard 1 of run 46085362733.
+  # test/agent-fill-e2e.test.ts stays here after a return attempt on 2026-11-28: two
+  # further required runs of main measured it at or below the bound alone
+  # (46099717218 at f2c55b343: 26.76 s; 46102135712 at c94b578ec: 27.38 s), but the
+  # returning pull request's first required run measured it 35 185 ms in shard 1
+  # (46105327705), above the bound; it ran in this job in the four runs after that
+  # attempt, 26.75 s, 39.19 s, 34.05 s and 38.47 s, both cases each time, and the
+  # decision to keep it as a separate required check is ALX-2061 (2026-11-28).
+  # test/catalogue-kind-relations.test.ts left this matrix on the same day: 28.01 s
+  # and 27.63 s alone in those two runs, and 27 119 / 26 506 / 24 486 / 28 437 /
+  # 24 820 ms in shard 1 of 46105327705, 46107475379, 46108016522, 46108461893 and
+  # 46108978562 (the reviewed head eac39521e).
+  # test/status-work.test.ts runs its two active cases here, the third being in the
+  # repository's case-level quarantine (madarch-stm0.13, docs/quarantine.md).
   # The shards leave out every file the
   # list names (the shard step here and scripts/run-tests.ts), so this required
   # matrix is the blocking coverage of these twelve. Four fixtures of the list run in
@@ -258,7 +267,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { file: test/catalogue-kind-relations.test.ts, cases: 1 }
           - { file: test/agent-fill-e2e.test.ts, cases: 2 }
           - { file: test/architecture-repository.test.ts, cases: 1 }
           - { file: test/db-schema-path.test.ts, cases: 5 }
