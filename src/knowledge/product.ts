@@ -577,11 +577,20 @@ export class KnowledgeProduct {
 
   private async sourceRevisions(product: ProductIdentity): Promise<Map<string, string>> {
     const owner = await this.open();
-    const { snapshot, configuration } = await this.productFillState(owner, product.name);
+    const revisions = new Map([...this.pins].filter(([, pin]) => pin.commit !== '').map(([name, pin]) => [name, pin.commit]));
+    // A run state this store cannot read is answered as the last known one, never as a failed read (madarch-8bdc.9): a
+    // source read falls back to the pins this process holds, as the running fill's own answer does in `followStoreFill`.
+    let memo = this.fillStateMemo?.owner === owner ? this.fillStateMemo : undefined;
+    try {
+      memo = await this.productFillState(owner, product.name);
+    } catch {
+      // The store cannot be read: the answer is what this process last knew.
+    }
+    if (memo === undefined) return revisions;
+    const { snapshot, configuration } = memo;
     // A mere press or a failed/cancelled run does not replace the last published product revision.
     const published = snapshot.runs.find(run => run.state === 'succeeded' || run.state === 'completed_partial');
     const run = published === undefined ? null : published.runId === configuration?.runId ? configuration : await readRunConfiguration(owner, published.runId);
-    const revisions = new Map([...this.pins].filter(([, pin]) => pin.commit !== '').map(([name, pin]) => [name, pin.commit]));
     if (run !== null && run.snapshot.commit !== '') revisions.set(productRepositoryId(product), run.snapshot.commit);
     return revisions;
   }

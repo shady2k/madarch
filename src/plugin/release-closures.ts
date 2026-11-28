@@ -29,7 +29,7 @@ import { bundledClosureHashes } from './bundled.js';
 export const SUPERSEDED_CLOSURE_HASHES: readonly string[] = [
   // The disk plugin 1.0.0 before ALX-1937 dropped its `product.uses-repository` exception, as this build hashes that
   // exact folder (`test/plugin-release-upgrade.test.ts` rebuilds it from the folder this release carries).
-  '65aa5d166a15b6db3ea9bbf8cddf3318b48d05d86a71af77eeda0c355327ad1d',
+  '78e249bd483510cd08f61d05a4a17c542612bd73e26665be0b3f57b3e587b715',
 ];
 
 /** Every closure this release trusts: its own, and the closures of the release it supersedes. */

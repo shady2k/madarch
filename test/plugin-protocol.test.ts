@@ -16,7 +16,7 @@ import { graphReadsOf, PluginContractFile, PluginGraphOwnFactsResult, PluginProt
 import { canonicalKey, validateUnitResult } from '../src/plugin/results.js';
 import { closureHashOf, closureOf, interpreterPinProblem, readPluginManifest, parsePluginManifest, sdkClosureFiles, ClosureRefusal } from '../src/plugin/closure.js';
 import { closureTrustProblem, isReleaseClosure, snapshotClosure } from '../src/plugin/snapshot.js';
-import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
+import { RELEASE_CLOSURE_HASHES, SUPERSEDED_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 import { bundledClosureHashes } from '../src/plugin/bundled.js';
 import { seccompFilter, refusedCallNames } from '../src/plugin/seccomp.js';
 import { checkCgroupDelegation, checkUserNamespaces } from '../src/plugin/cgroup.js';
@@ -260,8 +260,8 @@ describe("a plugin's closure and its one hash", () => {
   test('a closure no release carries needs approval as production, and runs as validation', () => {
     const closure = closureOf(join(FIXTURES, 'plugin-probe'));
     expect(isReleaseClosure(closure.hash)).toBe(false);
-    // The release carries its own plugins and nothing else (decision 0035, item 4): the fixture is not one of them.
-    expect(RELEASE_CLOSURE_HASHES).toEqual([...bundledClosureHashes()]);
+    // The release carries its own plugins and the closures it supersedes (decision 0035, item 4): the fixture is neither.
+    expect(RELEASE_CLOSURE_HASHES).toEqual([...bundledClosureHashes(), ...SUPERSEDED_CLOSURE_HASHES]);
     expect(RELEASE_CLOSURE_HASHES.length).toBeGreaterThan(0);
     const refused = closureTrustProblem(closure, 'production', join(closure.folder, 'plugin.json'));
     expect(refused?.code).toBe('needs-approval');
