@@ -8,11 +8,23 @@
  * lookups into a hash join over every `assertion_edge_subject` (and, at larger batches, `assertion`)
  * row, and a run then visited 1 523 tuples against a bound of 180.
  *
+ * The direct lookup also read its own anchored assertion twice — once inside the anchor lateral, once
+ * through the subject join — so it now reads that row once, through a lateral of its own.
+ *
  * The bound is the one `test/dispute-reconciliation-batch.test.ts` holds its measured host runs to:
  * `visited(plan) <= probes(plan) * expected`, where `expected` comes from what this case itself wrote
  * and never from the driver list the lookup under test assembles. This file reaches that bound with two
  * fixtures of a few hundred rows, so it stays well inside the single-file budget; the batch file keeps
  * its own cases and their bounds untouched.
+ *
+ * The reproduced fixture holds ten questions, and four of its five counted tables hold one to three
+ * pages. PostgreSQL 18.6 prices a sequential scan of one to three pages below a random index probe, so at
+ * the default `enable_seqscan=on` it scans `node` (248 rows) and the fifty rows the anchors must resolve
+ * whatever the SQL says — a floor of 298 against the bound of 240 this case derives. The reproduction
+ * therefore replays the lookup at `enable_seqscan=off`, the setting
+ * `test/dispute-reconciliation-batch.test.ts` uses for the same reason, and two lookups stand under the
+ * default settings on the 200-question catalogue, whose tables are past that crossover: ten touched
+ * slots and fifty-one.
  */
 import {expect,test} from 'bun:test';
 import {createTestDatabaseOwner} from './test-database.js';
@@ -101,17 +113,24 @@ async function fixture(catalog:number,disputedEdges:number){
   vertices:(await tx.query<{id:string}>(`SELECT n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='sample' ORDER BY n.key->>'name' COLLATE "C"`)).rows.map(row=>({sort:'vertex' as const,kind:'sample',subjectId:Number(row.id),property:'amount',language:null})),
   edges:(await tx.query<{id:string}>(`SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id=e.entity_id WHERE k.name='justifies' ORDER BY e.id`)).rows.map(row=>({sort:'edge' as const,kind:'justifies',subjectId:Number(row.id),property:'weight',language:null})),
  }));
- return {owner,bind,a,b,productUid,slots};
+ // A second operation on the same graph starts its own run, as the queue would give it one.
+ const nextOperation=async()=>{operation=newUid();await owner.transaction('write',tx=>bootstrapWriteIdentity(tx,'system.operation',operation,productUid));};
+ return {owner,bind,a,b,productUid,slots,nextOperation};
 }
 
+type Fixture=Awaited<ReturnType<typeof fixture>>;
 interface Measurement {readonly sql:string;readonly values?:readonly unknown[];readonly plan:Plan;readonly work:number;readonly probes:number;readonly drivers:number;readonly budget:number;readonly rows:readonly {sort:string;kind:string;subjectId:number;property:string}[]}
 
 /**
  * Run one touched-slot operation through the production host, then replay the anchor lookup it issued
- * with `EXPLAIN (ANALYZE, FORMAT JSON)` at the statistics the operation itself ran against.
+ * with `EXPLAIN (ANALYZE, FORMAT JSON)` at the statistics the operation itself ran against. A second
+ * measurement may stand on the graph of a first one, over slots that operation did not write: its own
+ * operation then keeps the affected slots to the ones this call states.
  */
-async function measure(catalog:number,touched:number,touchEdge:boolean,seqscan:'on'|'off'){
- const f=await fixture(catalog,1);
+async function measure(catalog:number,touched:number,touchEdge:boolean,seqscan:'on'|'off',shared?:{fixture:Fixture;offset:number}){
+ const f=shared?.fixture??await fixture(catalog,1);
+ const offset=shared?.offset??0;
+ if(shared)await f.nextOperation();
  const {createPgBossQueue}=await import('../src/adapters/pg-boss-queue.js');
  const {prepareQueueSchema}=await import('../src/adapters/schemas/queue.js');
  const {createOperationHost,initializeOperationScope}=await import('../src/graph/operation-host.js');
@@ -137,7 +156,7 @@ async function measure(catalog:number,touched:number,touchEdge:boolean,seqscan:'
    try{return await work(tx);}finally{tx.query=query;}
   },options)};
   const host=createOperationHost({owner:observed,queue,job:job!,contract,capability:binding,runUid,unitUid});
-  const written:Slot[]=[...f.slots.vertices.slice(0,touched),...(touchEdge?[f.slots.edges[0]!]:[])];
+  const written:Slot[]=[...f.slots.vertices.slice(offset,offset+touched),...(touchEdge?[f.slots.edges[0]!]:[])];
   await host.execute({key:'touched-slots',request:{}},async tx=>{
    for(const slot of written)await writeAssertion(tx,contract,{sort:slot.sort,kind:slot.kind,subjectId:String(slot.subjectId),property:slot.property,operation:'assert',value:3,validFrom:from});
    recording=true;return {accepted:true};
@@ -178,6 +197,8 @@ async function measure(catalog:number,touched:number,touchEdge:boolean,seqscan:'
 }
 
 test('a touched-slot operation keeps its anchor lookup inside the reproduced plan',async()=>{
+ // The CI reproduction: the ten-question fixture's tables are too small for the default planner to
+ // index, so the lookup is replayed where the failing run measured it (see the file's header).
  const measured=await measure(10,10,false,'off');
  try{
   expect(measured.expectedRows).toHaveLength(10);
@@ -189,9 +210,10 @@ test('a touched-slot operation keeps its anchor lookup inside the reproduced pla
  }finally{await measured.owner.close();}
 },60000);
 
-test('a fifty-slot operation keeps its anchor lookup inside the default planner settings, and the bound rejects a lookup that walks the graph',async()=>{
- const measured=await measure(200,50,true,'on');
+test('a fifty-slot operation keeps its anchor lookups inside the default planner settings, and the bound rejects a lookup that walks the graph',async()=>{
+ const shared=await fixture(200,1);
  try{
+  const measured=await measure(200,50,true,'on',{fixture:shared,offset:0});
   expect(measured.written.at(-1)).toMatchObject({sort:'edge',kind:'justifies',property:'weight'});
   expect(measured.direct.drivers).toBeLessThanOrEqual(measured.expected);
   expect(measured.direct.work).toBeLessThanOrEqual(measured.direct.budget);
@@ -206,5 +228,14 @@ test('a fifty-slot operation keeps its anchor lookup inside the default planner 
   expect(measured.unfenced.rows.map(row=>JSON.stringify(row)).sort()).toEqual(measured.expectedRows);
   expect(measured.unfenced.work).toBeGreaterThan(measured.unfenced.budget);
   expect(measured.unfenced.probes).toBeGreaterThan(0);
- }finally{await measured.owner.close();}
+  // Ten touched slots on the same store, whose tables are past the page crossover: the same bound
+  // holds at the default settings, which the ten-question fixture above cannot show.
+  const ten=await measure(200,10,false,'on',{fixture:shared,offset:100});
+  expect(ten.written).toHaveLength(10);
+  expect(ten.direct.drivers).toBe(ten.expected);
+  expect(ten.direct.work).toBeLessThanOrEqual(ten.direct.budget);
+  expect(ten.direct.rows.map(row=>JSON.stringify(row)).sort()).toEqual(ten.expectedRows);
+  expect(ten.widened.drivers).toBeGreaterThan(ten.expected*10);
+  expect(ten.widened.work).toBeGreaterThan(ten.widened.budget);
+ }finally{await shared.owner.close();}
 },60000);
