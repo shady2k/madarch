@@ -6,6 +6,16 @@
   "note": "A real fill pass of a small, already trimmed fixture costs 18.6-19.5 s on a runner (sample B's two status-work case fills; main's median for that fixture was 19.3 s before 0039), so a file that needs two passes cannot reach the 30 s bound whatever its data. The three samples of one tree also vary by up to 40% (owner-fill-path 66.10 s against 108.39 s), which is why a file at 32.72 s is not treated as an exit candidate. Each staying entry names the passes it pays and why they are its subject. The box numbers these entries carried before measured the 0039 candidate, where one fill cost 155.6 s against main's 19.3 s; those numbers are superseded by the runner samples above.",
   "files": [
     {
+      "path": "test/live-agent-usage.test.ts",
+      "seconds": 83.08,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-rcyu",
+      "defect": "The case drives a whole agent fill through the plugin's own turns and the ACP boundary, so it pays the same per-unit agent cost as test/agent-fill-e2e.test.ts: two agent units, each starting the adapter and its MCP server, then a held turn. The file now holds two cases, both reading the product's own run answer over HTTP: one reads the estimate a first turn charged while it stands at its barrier before it answers, and one reads the spend an adapter reported while a second held unit keeps the fill open. Measured single-file on box alx1936-meter-fix (agent-linux-01, 2 vCPU, 4 GiB, image madarch-3), one file at a time: 40.44 s and 38.26 s of case time and 83.08 s the whole file, which is this entry's committed timing in .github/workflows/single-file-timings.json. The one-time cost is the fill, not the fixture's setup: its plan assertion alone is 7 s.",
+      "replacement": "The page read itself is covered by the fast case in test/agent-meter.test.ts (a turn that reports no usage states its estimate in its span, about 90 ms), so this file can drop to the meter, a recorded ACP transcript and one trace read once the agent fill's per-unit cost falls under the speed-up stream madarch-64o5.176; until then the file keeps the end-to-end question: the product's own run read states the charged tokens while the fill is active.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/live-agent-usage.test.ts at or below 30 seconds, confirmed on a fresh run, with verified required-shard coverage."
+    },
+    {
       "path": "test/agent-fill-e2e.test.ts",
       "seconds": 35.76,
       "reason": "green-slow",

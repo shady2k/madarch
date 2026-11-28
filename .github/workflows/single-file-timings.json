@@ -252,6 +252,7 @@
     "test/knowledge-sync.test.ts": 7800,
     "test/knowledge-tracker-only.test.ts": 22000,
     "test/likec4-keywords.test.ts": 2817,
+    "test/live-agent-usage.test.ts": 83080,
     "test/logs.test.ts": 7800,
     "test/loop-entities.test.ts": 9100,
     "test/loop-graph-opinions.test.ts": 6000,

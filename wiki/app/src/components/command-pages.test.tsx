@@ -483,6 +483,29 @@ test('a finished partial run shows its final state, not a remaining time, and na
   } finally { await page.close(); }
 });
 
+test('the run summary states the tokens a live fill spent: the reported and the estimated ones alike', async () => {
+  // The run's answer as the product serves it while the fill is open: one turn answered with its own report, and one
+  // still open, whose estimate the stream already charged (madarch-rcyu, review ALX-2032).
+  runAnswer = {
+    ...RUN,
+    agentUsage: {
+      lines: [
+        { kind: 'demo.beta', field: '', model: 'fixture-model', plugin: 'agent-fill', inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214, cost: [], turns: 1, stopped: null },
+        { kind: 'demo.gamma', field: '', model: 'fixture-model', plugin: 'agent-fill', inputTokens: 100, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 100, cost: [], turns: 0, stopped: null },
+      ],
+      inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, cost: [], turns: 1, stops: [],
+    },
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const tokens = page.container.querySelector('[data-testid="fill-run-tokens"]');
+    // Every category is stated, the cache reads beside the tokens a cap counts — and the figure is the spend of a run
+    // still under way, never the zero the owner read.
+    expect(tokens?.textContent).toBe('Токены: 220 вход · 20 выход · 14 запись кэша · 60 чтение кэша · 314 всего');
+    expect(page.container.querySelector('[data-testid="fill-run-page"]')?.getAttribute('data-state')).toBe('running');
+  } finally { await page.close(); }
+});
+
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
