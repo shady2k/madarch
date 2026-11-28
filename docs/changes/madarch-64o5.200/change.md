@@ -80,6 +80,7 @@ paging and an empty state. No requirement text moves.
 ## Coverage
 
 - product-wiki/serve: static, test, mutation, review
+- product-wiki/logs: static, test
 
 ## Where it is seen
 
