@@ -41,12 +41,15 @@ every platform (`/$bunfs/`, `~BUN`, the checkout's `src/` and `scripts/`). The e
 not use it: it added the engine's path where none was and left the engine's path where one was. Using the same
 normalization keeps the two doors from disagreeing about what a refusal says, and stripping it until nothing changes
 covers a refusal that wrapped another, without touching the errors themselves. What makes a path the engine's is the
-root it starts with, so the two things that could hide a product behind an engine root are named: the folder the
-command asked about (a product inside the checkout) and the line number that ends a location (a checkout folder with a
-colon and a space in its path). A location whose line number is missing — an engine module's own message — ends at its
-first `: ` when what follows is the reason, a phrase with spaces, and not another part of the path; and an error's name
-before that separator is a bare identifier like `TypeError`, so a checkout folder named `ScratchError` keeps its colon
-and space as part of the path.
+root it starts with, so the root decides where the location ends rather than the shape of what follows it. First the
+folder the command asked about is read: a location under it belongs to the product, even where the product sits inside
+the checkout's own `src/` or `scripts/`. Then the known engine roots, bundle mounts before the checkout's own: a bundle
+mount (`/$bunfs/`, `B:/~BUN/`) holds neither a colon nor a space, so its location always ends at its first `: `, and a
+checkout's `src/` or `scripts/` folder is matched whole — the checkout's path may itself hold a colon and a space — up
+to the first segment that ends in a module extension, which is the module the engine raised in. A numbered segment that
+ends in no module extension is a product's file, so it stays, and an unnumbered one continues only while the text after
+it names no absolute path. An error's name before the separator is a bare identifier like `TypeError`, so a checkout
+folder named `ScratchError` keeps its colon and space as part of the path.
 
 ## Changes to requirements
 

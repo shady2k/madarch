@@ -139,6 +139,17 @@ test('entity CLI refusals keep the reason and field and drop an engine location 
     const reasonKeptPlain = await entityCommand(['show', 'task', 'a1', '--product', nested], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
     expect(reasonKeptPlain).toBe(2);
     expect(printed.split('\n')[0]).toBe(`could not read ${nested}/workspace.yaml:42: unexpected field`);
+    // A repeated engine location goes one at a time, and the product's own line stays with it.
+    const twice = `${bundle}: ${bundle}:1: could not read ${nested}/workspace.yaml:42: unexpected field`;
+    authored.mockRejectedValueOnce(new Error(twice));
+    const twiceKept = await run(['show', 'task', 'a1'], nested);
+    expect(twiceKept.code).toBe(2);
+    expect(twiceKept.body.error.message).toBe(`could not read ${nested}/workspace.yaml:42: unexpected field`);
+    authored.mockRejectedValueOnce(new Error(twice));
+    printed = '';
+    const twicePlain = await entityCommand(['show', 'task', 'a1', '--product', nested], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
+    expect(twicePlain).toBe(2);
+    expect(printed.split('\n')[0]).toBe(`could not read ${nested}/workspace.yaml:42: unexpected field`);
   } finally {
     authored.mockRestore(); status.mockRestore(); close.mockRestore();
   }
@@ -158,6 +169,19 @@ test('engine locations are stripped only where the location is the engine\'s', (
   // An engine prefix with no line number ends at its own separator: the reason's numbered path stays.
   expect(stripEngineLocation('/$bunfs/root/madarch: could not read /tmp/product/workspace.yaml:42: unexpected field'))
     .toBe('could not read /tmp/product/workspace.yaml:42: unexpected field');
+  // An engine prefix followed straight away by a product location ends at its own separator too.
+  expect(stripEngineLocation('/$bunfs/root/madarch: /tmp/product/workspace.yaml:42: unexpected field'))
+    .toBe('/tmp/product/workspace.yaml:42: unexpected field');
+  // The same for a checkout: the module the engine raised in ends the location, not the reason's own line.
+  expect(stripEngineLocation(`${join(src, 'graph', 'fill-orchestration.ts')}: /tmp/product/workspace.yaml:42: unexpected field`))
+    .toBe('/tmp/product/workspace.yaml:42: unexpected field');
+  // A source folder of the checkout named with a colon and a space is consumed with the root, whole.
+  expect(stripEngineLocation(`${join(src, 'fixture: source checkout', 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
+  const colonRoot = '/tmp/fixture: source checkout';
+  expect(stripEngineLocation(`${join(colonRoot, 'src', 'graph', 'validation.ts')}:1: ${reason}`, undefined, colonRoot)).toBe(reason);
+  // A numbered file under src/ that is no engine module is a product's: it and the reason's line stay.
+  const notModule = `${join(src, 'nested', 'workspace.yaml')}:1: could not read /tmp/other/app.ts:42: bad`;
+  expect(stripEngineLocation(notModule)).toBe(notModule);
   // A checkout folder whose last part ends in `Error` is a path, not the name of an error before it.
   expect(stripEngineLocation(`${join(src, 'ScratchError: source', 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
   // The product asked about keeps its own file and line, even inside the engine's src/.
