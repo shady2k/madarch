@@ -24,6 +24,7 @@ import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { runFill } from '../src/fill/run.js';
 import { writeOrchestration, writeFillEndIfAbsent, readSealedChildren, sealSplitIn } from '../src/graph/fill-orchestration.js';
 import { readFillEnd, readProgress } from '../src/graph/fill-orchestration.js';
+import { assertionValueTableName } from '../src/graph/contract.js';
 import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits, readUnit, readUnitGeneration, type UnitRecord } from '../src/graph/fill-state.js';
 import { listRepositories } from '../src/graph/records.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
@@ -835,17 +836,25 @@ test('a cleanup that refuses at its last write leaves the run, its units and its
   const { place, owner, database, queue, runId, unfinished } = await pressedRunWithUnits('atomic-cleanup');
   const attempt0 = await claimFillRun(queue);
   if (attempt0 === null) throw new Error('the fixture job was not claimed');
-  // The run's own failure summary carries an invalid mention token, which the graph refuses: the cleanup's last write
-  // throws. Written unit by unit, the skips had already committed and the run stood `running` with every unit skipped for
-  // ever — the residue ALX-2025 measured on the stand (60 units skipped, the run and its chain stuck).
+  // The store refuses the cleanup's last write, the run's own failure summary: a trigger on that write, the pattern
+  // `test/server-sources.test.ts` uses for a write the fixture wants to fail. The text is no failure source any more —
+  // authored and generated text is kept verbatim — so the write itself is refused. Written unit by unit, the skips had
+  // already committed and the run stood `running` with every unit skipped for ever — the residue ALX-2025 measured on
+  // the stand (60 units skipped, the run and its chain stuck).
+  const refusalMessage = 'fixture: the cleanup refused its last write';
+  await owner.exec(`CREATE FUNCTION fail_cleanup_summary() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.value LIKE 'the run failed: %' THEN RAISE EXCEPTION '${refusalMessage}'; END IF;
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER fail_cleanup_summary BEFORE INSERT ON "${assertionValueTableName('system.progress', 'vertex', 'summary')}" FOR EACH ROW EXECUTE FUNCTION fail_cleanup_summary()`);
   let refusal: unknown;
   try {
     await failAndSettleRun({ database, product: place.name, clock: Date.now }, {
-      runId, detail: 'the run failed: [[uid:<lowercase hyphenated UUID>]]', eligible: claimFence(queue, attempt0),
+      runId, detail: 'the fixture run failed with its units unfinished', eligible: claimFence(queue, attempt0),
     });
   } catch (error) { refusal = error; }
   expect(refusal).toBeInstanceOf(Error);
-  expect((refusal as Error).message).toContain('[[uid:');
+  expect((refusal as Error).message).toContain(refusalMessage);
   const held = await readRunUnits(database, runId);
   for (const unit of unfinished) expect(held.find((row) => row.unitId === unit.unitId)?.state).toBe(unit.state);
   expect(held.filter((unit) => unit.state === 'skipped')).toEqual([]);
