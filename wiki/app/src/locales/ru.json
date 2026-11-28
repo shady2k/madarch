@@ -13,6 +13,9 @@
   },
   "common": {
     "emptyValue": "—",
+    "firstPage": "Вы на первой странице.",
+    "lastPage": "Вы на последней странице.",
+    "loading": "Загрузка…",
     "separator": " · ",
     "listSeparator": ", ",
     "numberSuffix": ". ",

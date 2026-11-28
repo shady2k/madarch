@@ -18,14 +18,17 @@ for each searchable field in every declared kind, including kinds with no stored
 vertices. The direct search reached the read worker's 30-second deadline and
 returned HTTP 200 with the GraphQL error `TIMEOUT`.
 
-The existing search builds field expressions only for kinds with stored
-vertices. The presence probe uses the index of stored nodes by kind.
-Search still applies the operation's visibility and time filters when it
-matches fields. The separate search of catalogue labels and definitions
-still supplies catalogue matches before any Fill runs.
+Search builds field expressions only for kinds with stored vertices. An
+indexed existence probe finds these kinds without applying the read snapshot's
+visibility filters. The visibility check reads existence assertions only for
+the chosen kinds, and each field branch filters the active vertices by kind
+before reading the field. The search uses the same snapshot, matching and
+ranking rules. The separate search of catalogue labels and definitions still
+supplies catalogue matches before any Fill runs.
 
 The toolbar uses the existing localized loading message while the refresh
-button is disabled during a page read.
+button is disabled during a page read. Table, Relations and Treemap use
+localized messages while loading and at the first and last page.
 
 ## Preserved contracts
 

@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
-import type { EdgeDraft, VertexDraft } from '../src/graph/contract.js';
+import { assertionValueTableName, type EdgeDraft, type VertexDraft } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
@@ -791,11 +791,13 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
     vertices: [{ ...repository, values: {}, producer: 'search', producerVersion: '1' }, ...Array.from({ length: 60 }, (_, at) => ({ kind: 'demo.file', keyEdges: { repository }, key: { path: `search-bound-${String(at)}.ts` }, values: {}, producer: 'search', producerVersion: '1' }))], edges: [], removals: [],
   }, 1, { author: 'search@1' }); });
   const transferred: number[] = [];
+  let searchStatement = '';
   let searchParameters: readonly unknown[] = [];
   const wrapped: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, (tx) => work({ ...tx, query: async (sql: string, values?: readonly unknown[]) => {
     const answer = await tx.query(sql, values);
     if (sql.startsWith('WITH hits AS')) {
       transferred.push(answer.rows.length);
+      searchStatement = sql;
       searchParameters = values ?? [];
     }
     return answer;
@@ -810,6 +812,9 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   expect(flat['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true } });
   expect((flat['search'] as { edges: unknown[] }).edges).toHaveLength(2);
   expect(transferred.pop()).toBeLessThanOrEqual(2);
+  // The stored repository owns the files, but its own existence cannot decide whether a file is active.
+  expect(searchStatement).toContain(assertionValueTableName('demo.file', 'vertex', '$exists'));
+  expect(searchStatement).not.toContain(assertionValueTableName('demo.repository', 'vertex', '$exists'));
   const empty = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 0) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
   expect(empty['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true }, edges: [] });
   expect(transferred.pop()).toBeLessThanOrEqual(1);

@@ -13,6 +13,9 @@
   },
   "common": {
     "emptyValue": "—",
+    "firstPage": "You are on the first page.",
+    "lastPage": "You are on the last page.",
+    "loading": "Loading…",
     "separator": " · ",
     "listSeparator": ", ",
     "numberSuffix": ". ",
