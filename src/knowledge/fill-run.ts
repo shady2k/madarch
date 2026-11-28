@@ -33,7 +33,14 @@ import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
 import type { FillStateDatabase } from '../graph/fill-state.js';
+import type { OuterTransaction } from '../history-types.js';
 import { readProduct } from '../product/manifest.js';
+
+/**
+ * The write transaction a run's own cleanup asks the queue through, taken from the orchestrator's own option rather than
+ * importing the query interface: the fence that serialises the run's writes is where the attempt's claim is read (ALX-2077).
+ */
+type RunWriteFence = Parameters<NonNullable<NonNullable<Parameters<typeof failAndSettleRun>[1]>['eligible']>>[0];
 
 /** A run that failed before its host began is ended where the run's end lives (`graph/fill-orchestration.ts`). */
 export { failRequestedFill };
@@ -269,6 +276,16 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
     const identity = readProduct(options.productFolder);
     /** Ending the run this fill lost touches its own rows and its product's chain, and nothing of a service (ALX-2024). */
     const cleanup: RunCleanupContext = { database, product: identity.ok ? identity.product.name : basename(options.productFolder), clock: Date.now };
+    /**
+     * The attempt's own claim, asked inside the run's write fence: a claim that lapsed is another attempt's now, so this
+     * one writes no unit, no run, no chain and no end (ALX-2077). The `fill-runs` job is the run's lock, so the queue is
+     * the authority asked here, and the fence that serialises the run's writes is where the question is answered.
+     */
+    const stillClaimed = options.claim === undefined
+      ? undefined
+      : async (tx: RunWriteFence): Promise<boolean> => await options.claim!.queueService.isActive(options.claim!.job, tx as unknown as OuterTransaction);
+    /** Ends the run this attempt leaves, under its claim: the answer says whether this attempt still owned it. */
+    const endLostRun = async (detail: string): Promise<boolean> => (await failAndSettleRun(cleanup, { runId: options.runId, detail, ...(stillClaimed === undefined ? {} : { eligible: stillClaimed }) })).lapsed;
     const fillTheStore = async (): Promise<KnowledgeFillResult> => {
       try {
         // A live fill takes precedence over admission of another request. The orchestrator still owns the atomic
@@ -331,15 +348,16 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         if (!result.ok) {
           const message = await refusalWords(owner, options.productFolder, result);
           // A claim that lapsed is another attempt's job now: this one writes nothing about the run, its chain or its end.
-          if (result.code !== 'fill-orchestrator/claim-lapsed' && !(await failRequestedFill(database, options.runId, message))) {
+          let lost = result.code === 'fill-orchestrator/claim-lapsed';
+          if (!lost && !(await failRequestedFill(database, options.runId, message))) {
             // The run had begun and its plan or its start refused it: it releases its units and its chain, and only the
             // attempt that moved it writes its end (ALX-2024, ALX-2026 findings 3 and 4). The cause is the one the run
             // machine accepts from `planning` and `running` — a started attempt that will not carry the run any further —
             // never `initialization-failed`, which only a run still `created` may take (`src/fill/fsm.ts` line 549).
-            await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
+            lost = await endLostRun(message);
           }
           recordEnd = false;
-          return { ok: false, state: 'failed', refused: true, message, units: 0, ...(result.code === undefined ? {} : { code: result.code }) };
+          return { ok: false, state: 'failed', refused: true, message, units: 0, ...(lost ? { code: 'fill-orchestrator/claim-lapsed' as const } : result.code === undefined ? {} : { code: result.code }) };
         }
         // The run's own durable events name why a unit did not publish: the stage's error, with the
         // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
@@ -358,10 +376,11 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             return { ok: false, state: result.state, message, units: result.units.length, retryable: true };
           }
           // Its attempts are spent: nothing will move the run again, so it releases its units and its chain and records
-          // its end here, or the press that asked for it waits for an end no process writes (ALX-2024).
-          await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
+          // its end here, or the press that asked for it waits for an end no process writes (ALX-2024). A cleanup this
+          // attempt lost to a lapsed claim writes nothing, and the attempt that holds the job now carries the run on.
+          const lost = await endLostRun(message);
           recordEnd = false;
-          return { ok: false, state: result.state, message, units: result.units.length };
+          return { ok: false, state: result.state, message, units: result.units.length, ...(lost ? { code: 'fill-orchestrator/claim-lapsed' as const } : {}) };
         }
         if (result.state !== 'succeeded') {
           return {
@@ -381,6 +400,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        let lost = false;
         if (await readRun(owner, options.runId) === null) {
           const identity = readProduct(options.productFolder);
           await createRun(database, { runId: options.runId, product: identity.ok ? identity.product.name : basename(options.productFolder), at: Date.now() });
@@ -396,10 +416,11 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           // stage's own error. The row left standing `planning` or `running` answers every reader `queued` or `running`
           // for ever, and the press's page waits for an end no killed process writes (measured 2026-11-26: the
           // clean-install walk polled 180 000 ms for a run whose plan had refused after 2 s). The run releases the
-          // units it left and the chain it held before its end is written (ALX-2024).
-          await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
+          // units it left and the chain it held before its end is written (ALX-2024). A cleanup this attempt lost to a
+          // lapsed claim writes nothing at all (ALX-2077).
+          lost = await endLostRun(message);
         }
-        return { ok: false, state: 'failed', message, units: 0 };
+        return { ok: false, state: 'failed', message, units: 0, ...(lost ? { code: 'fill-orchestrator/claim-lapsed' as const } : {}) };
       }
     };
 

@@ -32,7 +32,7 @@ import type { CommandResponse, Db, JobAttempt, JobWithMetadata, PgBoss as PgBoss
 import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ownerDatabase, QUEUE_SCHEMA_STAMP, queueOptions } from './queue-definition.js';
 export { DEFAULT_QUEUE_SCHEMA } from './queue-definition.js';
 import { withSpan } from '../obs/trace.js';
-import { raise } from '../model/raise.js';
+import { here, raise } from '../model/raise.js';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
 import { requireSchema } from './store-readiness.js';
@@ -50,6 +50,19 @@ import type {
 
 /** The most dead letters one read answers: the bound the database itself takes for a list read. */
 const MAX_DEAD_LETTERS = 100_000;
+
+/**
+ * The attempt a settlement named is no longer the one the queue hands out: its claim lapsed and the job belongs to the
+ * queue's next attempt (ALX-2077). The queue's contract is unchanged — a settlement that is not this attempt's is still
+ * refused and nothing is written — but the refusal carries its own type, so the worker whose claim lapsed treats it as
+ * the normal outcome it is instead of as an error that ends the process.
+ */
+export class JobClaimLapsedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JobClaimLapsedError';
+  }
+}
 
 export interface PgBossQueueOptions {
   /** The process's database owner, opened once and lent: the queue never opens a second database. */
@@ -387,7 +400,7 @@ class PgBossQueue implements QueueService {
     const attempt = this.jobOf(queue, job);
     const answer = await this.boss.fail(queue, attempt, { value: { message: reason } }, transaction === undefined ? undefined : { db: transactionDatabase(transaction) });
     if (!settled(answer)) {
-      raise(`the job "${job.id}" of the queue "${queue}" was not failed: its attempt ${String(job.attempt)} is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`);
+      throw new JobClaimLapsedError(`${here()}: the job "${job.id}" of the queue "${queue}" was not failed: its attempt ${String(job.attempt)} is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`);
     }
     // The answer is what the settlement did, and pg-boss judges it on the job's
     // own allowance (`retry_count < retry_limit`), which the job carries from
