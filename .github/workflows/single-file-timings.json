@@ -20,6 +20,7 @@
     "test/architecture-check.test.ts": 14000,
     "test/architecture-gates.test.ts": 7200,
     "test/architecture-read-judgements.test.ts": 1823,
+    "test/architecture-repository.test.ts": 33971,
     "test/architecture-schema-preparation.test.ts": 6900,
     "test/assertion-read-batch.test.ts": 6715,
     "test/assertion-selection-diagnostics.test.ts": 2380,
