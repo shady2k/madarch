@@ -57,6 +57,9 @@ const ENDING_MS = 1_600;
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
 const PARENT_CHECK_MS = 50;
 
+/** How often a watched store's fill-run queue is swept for a claim whose process died (ALX-2024). */
+const SWEEP_EVERY_MS = 10_000;
+
 /** Failed opens can start and stop PostgreSQL: retry each store separately, with pauses capped at five seconds. */
 const OPEN_RETRY_MS = 1_000;
 export const MAX_OPEN_RETRY_MS = 5_000;
@@ -112,6 +115,8 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const watched = new Map<string, Watched>();
   const openingErrors = new Map<string, string>();
   const openingRetries = new Map<string, { delay: number; after: number }>();
+  /** When each store's fill-run queue was last swept for claims nothing holds. */
+  const lastSweep = new Map<string, number>();
   const state: RoleState = { owners: new Set(), queues: new Map(), databaseFolders: new Set(), ending: false };
   const closeReadSessions = options.closeReadSessions ?? closeFileTextSessions;
   /**
@@ -231,6 +236,16 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         await serveFileTexts(held.queue, { store: held.storeFolder }).catch((error: unknown) => {
           log(`madarch fill: the store ${storeFolder} could not answer a file read: ${error instanceof Error ? error.message : String(error)}`);
         });
+        // A claim whose process died is swept here, and the queue then hands the run to this role's next attempt: a
+        // `fill-runs` queue with no supervisor of its own would otherwise hold the product's singleton for the whole lease
+        // (ALX-2024).
+        const swept = lastSweep.get(storeFolder) ?? 0;
+        if (performance.now() - swept >= SWEEP_EVERY_MS) {
+          lastSweep.set(storeFolder, performance.now());
+          await held.queue.recover(FILL_RUN_QUEUE).catch((error: unknown) => {
+            log(`madarch fill: the queue of ${storeFolder} could not be swept: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
         const job = await claimFillRun(held.queue).catch((error: unknown) => {
           log(`madarch fill: the queue of ${storeFolder} could not be claimed: ${error instanceof Error ? error.message : String(error)}`);
           return null;
@@ -332,12 +347,16 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     state.running = undefined;
     // The run's end is the answer the press waits on, so only an attempt that published one acknowledges its job as done:
     // a job settled done is never handed out again, and a press whose job was acknowledged without an end waits for ever
-    // (ALX-2026 finding 5). An attempt that failed before it built its service publishes no end at all — a run already
-    // `planning` or `running` takes none from `failRequestedFill` — so it leaves its job to the queue's next try, and the
-    // last one ends the run it leaves behind. A job whose retries are spent is the run's last chance: what it leaves
-    // behind ends here.
+    // (ALX-2026 finding 5). An attempt that gave up leaves its job to the queue's next try, and the last one ends the run it
+    // leaves behind; an attempt that published an end of its own is that run's answer, and its job settles done. A claim that
+    // lapsed belongs to whoever holds it now, so this attempt settles nothing at all — it neither masks the end another
+    // attempt writes nor takes the job from it (ALX-2024).
+    if (result.code === 'fill-orchestrator/claim-lapsed') {
+      log(`madarch fill: ${data.product} run ${data.runId} is another attempt's now: nothing was settled`);
+      return;
+    }
     const ended = result.ok || (await readFillEnd(held.owner, data.runId).catch(() => null)) !== null;
-    const outcome = ended ? { ok: true } : { ok: false, ...(result.message === undefined ? {} : { message: result.message }) };
+    const outcome = result.retryable === true || !ended ? { ok: false, ...(result.message === undefined ? {} : { message: result.message }) } : { ok: true };
     if (await settleFillRun(held.queue, job, outcome) === 'failed') await endExhausted(held, job, result.message ?? `the fill of ${data.product} ended without an answer`).catch(() => undefined);
     log(`madarch fill: ${data.product} run ${data.runId} ${result.ok ? 'filled' : `failed: ${result.message ?? ''}`}`);
   } catch (error) {

@@ -27,7 +27,8 @@ import type { DraftEnv } from '../product/home.js';
 import { failRequestedFill, readProgress, writeFillEndIfAbsent } from '../graph/fill-orchestration.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
 import { advanceRun, createRun, readChain, readRun } from '../graph/fill-state.js';
-import { failAndSettleRun, TERMINAL_RUN_STATES, type RunCleanupContext } from '../fill/orchestrator.js';
+import { failAndSettleRun, lastRunActivityAt, RUN_ORPHAN_AFTER_MS, TERMINAL_RUN_STATES, type RunCleanupContext, type RunClaim } from '../fill/orchestrator.js';
+import { fillRunHeldElsewhere } from '../fill/run-jobs.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readPinnedGraphContract } from '../product/preparation-contract.js';
 import { withAssertionContract } from '../graph/system-contract.js';
@@ -145,6 +146,16 @@ export interface KnowledgeFillResult {
   readonly units: number;
   /** The declared repositories the run could not read, each with its path and the state it is in. */
   readonly unread?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
+  /**
+   * True when the queue may hand the run to another attempt and this attempt published nothing about it: the run keeps
+   * standing, its claim is retried, and its end is the next attempt's or the one that gives up (ALX-2024).
+   */
+  readonly retryable?: boolean;
+  /**
+   * The refusal's own code, when the run refused before it could be driven: `fill-orchestrator/claim-lapsed` names a run
+   * the queue has already handed to another attempt, whose breach of ownership this one published nothing about.
+   */
+  readonly code?: string;
 }
 
 /** One fill of a knowledge store, as the host drives it and a person controls it. */
@@ -220,6 +231,17 @@ export async function finishKnowledgeStore(owner: StoreOwner, declared?: Readonl
 }
 
 /**
+ * Whether another process still holds this product's fill: the product's `fill-runs` job is unfinished, which is the
+ * queue's own proof that a process was asked for the run and drives it even when no row of the run's own moved (ALX-2024,
+ * ALX-2026 finding 1). A press that holds its own claim has that proof already: the queue's singleton key forbids a second
+ * unfinished job for the product. A store whose queue cannot be read says nothing it cannot say: the recovery window decides.
+ */
+async function claimedElsewhere(owner: StoreOwner, productFolder: string, claim: RunClaim | undefined): Promise<boolean> {
+  if (claim !== undefined) return false;
+  return (await fillRunHeldElsewhere(owner, productFolder)) === true;
+}
+
+/**
  * Starts one product's fill of its knowledge store: the store's owner, the
  * workflow's stages, the run — returned at once, with `done` carrying the end.
  * A run that ends takes a snapshot for the reader and records the pins of the
@@ -254,7 +276,11 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         const chain = identity.ok ? await readChain(owner, identity.product.name) : null;
         if (chain?.state === 'active' && chain.context.activeRunId !== options.runId) {
           const held = chain.context.activeRunId === null ? null : await readRun(owner, chain.context.activeRunId);
-          if (held !== null && !(TERMINAL_RUN_STATES as readonly string[]).includes(held.state)) {
+          // A run nothing moved for the recovery window is not a live fill: this request takes the chain the way the
+          // orchestrator's own recovery does, which ends that run before this one plans (ALX-2024).
+          const still = held !== null && (await lastRunActivityAt({ database }, held.runId) ?? 0) <= Date.now() - RUN_ORPHAN_AFTER_MS;
+          const abandoned = still && !(await claimedElsewhere(owner, options.productFolder, options.claim));
+          if (held !== null && !(TERMINAL_RUN_STATES as readonly string[]).includes(held.state) && !abandoned) {
             const message = await refusalWords(owner, options.productFolder, { ok: false, code: 'fill-orchestrator/chain-active', reason: '' });
             recordEnd = false;
             // The request this fill was asked for ends here: its end is the answer the pressing page waits on, and
@@ -304,7 +330,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         });
         if (!result.ok) {
           const message = await refusalWords(owner, options.productFolder, result);
-          if (!(await failRequestedFill(database, options.runId, message))) {
+          // A claim that lapsed is another attempt's job now: this one writes nothing about the run, its chain or its end.
+          if (result.code !== 'fill-orchestrator/claim-lapsed' && !(await failRequestedFill(database, options.runId, message))) {
             // The run had begun and its plan or its start refused it: it releases its units and its chain, and only the
             // attempt that moved it writes its end (ALX-2024, ALX-2026 findings 3 and 4). The cause is the one the run
             // machine accepts from `planning` and `running` — a started attempt that will not carry the run any further —
@@ -312,7 +339,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             await failAndSettleRun(cleanup, { runId: options.runId, detail: message });
           }
           recordEnd = false;
-          return { ok: false, state: 'failed', refused: true, message, units: 0 };
+          return { ok: false, state: 'failed', refused: true, message, units: 0, ...(result.code === undefined ? {} : { code: result.code }) };
         }
         // The run's own durable events name why a unit did not publish: the stage's error, with the
         // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
@@ -324,6 +351,12 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         const why = named.length > 0 ? named.join('; ') : failedUnits.map((unit) => `${unit.unitId} (${unit.stageId}, ${unit.state})`).join(', ');
         if (!result.settled) {
           const message = `the fill ended without settling${result.stoppedBecause === undefined ? '' : `: ${result.stoppedBecause}`}${why === '' ? '' : `; ${why}`}`;
+          // The queue still has an attempt after this one: the run stands where it is, and this attempt publishes nothing
+          // about it — its end is written by the attempt that finishes it, not by one that only gave up (ALX-2024).
+          if (options.claim !== undefined && options.claim.job.attempt < options.claim.job.retries) {
+            recordEnd = false;
+            return { ok: false, state: result.state, message, units: result.units.length, retryable: true };
+          }
           // Its attempts are spent: nothing will move the run again, so it releases its units and its chain and records
           // its end here, or the press that asked for it waits for an end no process writes (ALX-2024).
           await failAndSettleRun(cleanup, { runId: options.runId, detail: message });

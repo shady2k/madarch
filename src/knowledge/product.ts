@@ -1294,7 +1294,22 @@ export class KnowledgeProduct {
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
       const job = { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) };
-      const queued = await enqueueFillRun(this.fillQueue, job);
+      let asked0 = await enqueueFillRun(this.fillQueue, job);
+      if (!asked0.created) {
+        // A job the queue still holds is one whose attempt ended without settling — a process that died — and the sweep
+        // hands it to the next attempt; the press waits behind that attempt rather than being refused (ALX-2024).
+        await this.fillQueue.recover(FILL_RUN_QUEUE).catch(() => undefined);
+        asked0 = await enqueueFillRun(this.fillQueue, job);
+      }
+      if (!asked0.created) {
+        // The product's fill is queued or running and this press adds nothing to it: its own request ends here, so the
+        // page that pressed it answers instead of waiting for an end nobody will write (ALX-2024).
+        const message = 'a fill of this product is already running';
+        await failRequestedFill(await this.fillDatabase(owner), runId, message);
+        this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message, code: 'fill' };
+        this.notify();
+        return;
+      }
       const cleanup: RunCleanupContext = { database: await this.fillDatabase(owner), product: product.name, clock: Date.now };
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
@@ -1310,9 +1325,9 @@ export class KnowledgeProduct {
         // Every fifth second the queue is asked whether the job it was given still has an attempt left: a job whose
         // retries are spent leaves the run standing for no one, and the press ends it rather than waiting for ever
         // (ALX-2024).
-        if (queued.id !== null && ++polls % 20 === 0) {
+        if (++polls % 20 === 0) {
           await this.fillQueue.recover(FILL_RUN_QUEUE).catch(() => undefined);
-          const held = await this.fillQueue.job(FILL_RUN_QUEUE, queued.id).catch(() => null);
+          const held = await this.fillQueue.job(FILL_RUN_QUEUE, asked0.id).catch(() => null);
           if (held !== null && (held.state === 'failed' || held.state === 'cancelled')) {
             end = await readFillEnd(owner, runId).catch(() => null);
             if (end !== null) {

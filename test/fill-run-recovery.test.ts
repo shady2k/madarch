@@ -1,7 +1,9 @@
 /**
- * One pressed fill's end is the answer the press waits on (ALX-2023, `madarch-47vw.7`). On the ALX-1717 stand a fill
- * failed and the wiki kept answering 409 until the daemon restarted: a run whose plan refused, or whose `fill-runs` job's
- * retries were spent, stood for ever with no end, so the press hung and every later press waited behind it.
+ * One pressed fill's run job is the run's own lock, and the run's end is the answer the press waits on (ALX-2023,
+ * `madarch-47vw.7`). Two things went wrong on the ALX-1717 stand: a job handed back to the queue read as "the process
+ * that ran it ended", ending the run the retry was asking to drive; and a run whose plan refused — or whose job's
+ * retries were spent — stood for ever with no end, so the press hung and every later press got 409 until the daemon
+ * restarted.
  *
  * These cases drive the real path: one live `KnowledgeProduct.startFill` through the store's own `fill-runs` queue, the
  * fill role that claims it, and the run's end read back from the store. Every fill is deterministic and runs no model.
@@ -17,13 +19,18 @@ import { withAssertionContract } from '../src/graph/system-contract.js';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { readFillEnd, writeFillEndIfAbsent, writeOrchestration } from '../src/graph/fill-orchestration.js';
-import { advanceChainIn, advanceRun, createRun, openChainIn, readChain, readRun, readRunUnits } from '../src/graph/fill-state.js';
+import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
+import { runFill } from '../src/fill/run.js';
+import { writeOrchestration, writeFillEndIfAbsent } from '../src/graph/fill-orchestration.js';
+import { readFillEnd, readProgress } from '../src/graph/fill-orchestration.js';
+import { advanceChainIn, advanceRun, advanceUnitIn, createRun, createUnitIn, openChainIn, readChain, readRun, readRunUnits } from '../src/graph/fill-state.js';
 import { listRepositories } from '../src/graph/records.js';
 import type { FillStateDatabase } from '../src/graph/fill-state.js';
-import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue } from '../src/fill/run-jobs.js';
-import { createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, failAndSettleRun, planRun } from '../src/fill/orchestrator.js';
+import { claimFillRun, enqueueFillRun, FILL_RUN_QUEUE, fillRunHeldElsewhere, openFillRunQueue } from '../src/fill/run-jobs.js';
+import { createOrchestrator, DEFAULT_ORCHESTRATOR_LIMITS, failAndSettleRun, planRun, recoverOrphanedRun, startRun } from '../src/fill/orchestrator.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
+import { StageRegistry } from '../src/fill/registry.js';
+import { fixtureOperations } from './fill-operation-fixture.js';
 import { createStagesFill } from '../src/product/fill-stages.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { gitEnv } from './git-env.js';
@@ -84,6 +91,43 @@ async function preparedStore(place: { folder: string; knowledgeRoot: string }): 
   return { owner, database: { transaction: owner.transaction.bind(owner), graphContract }, storeFolder };
 }
 
+test('a retried claim carries its own run on instead of ending it', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('retry');
+  const { owner, database, storeFolder } = await preparedStore(place);
+  const queue = await openFillRunQueue(owner);
+  opened.push(queue);
+  const runId = 'retried-run';
+  const job = { product: place.folder, store: storeFolder, runId };
+  expect((await enqueueFillRun(queue, job)).created).toBe(true);
+  // The first attempt dies before it plans: its claim is failed, the queue holds the retry.
+  const first = await claimFillRun(queue);
+  if (first === null) throw new Error('the fixture job was not claimed');
+  expect(await queue.fail(FILL_RUN_QUEUE, first, 'the fixture attempt ended without settling')).toBe('retry');
+  // The retry waits the queue's five seconds; the case moves its moment instead of sleeping through it.
+  await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET start_after = clock_timestamp() WHERE id = $1::uuid`, [first.id]); });
+  const second = await claimFillRun(queue);
+  if (second === null) throw new Error('the fixture retry was not claimed');
+  expect(second.attempt).toBe(1);
+  // The fill closes the owner it is given, so the case reads the store through its own.
+  const fillOwner = await createDatabaseOwner({ store: join(storeFolder, 'graph'), connectOnly: true });
+  const fill = await startKnowledgeFill({
+    productFolder: place.folder, storeFolder, runId, database: fillOwner,
+    prepareContract: async (contract) => await requestStorePreparation(join(storeFolder, 'graph'), contract),
+    claim: { queueService: queue, queue: FILL_RUN_QUEUE, job: second },
+  });
+  try {
+    const answer = await fill.done;
+    // The retried attempt carried the same run on. On the base it read its own retry as a dead process, ended the run
+    // the retry named, and the attempt then refused with `fill-orchestrator/run-not-plannable`.
+    expect(JSON.stringify(answer)).not.toContain('run-not-plannable');
+    const events = await readProgress(database, runId).catch(() => []);
+    expect(events.some((event) => event.summary.includes('the process that ran it ended'))).toBe(false);
+
+  } finally {
+    await fill.close().catch(() => undefined);
+  }
+}), 120_000);
+
 test('a job whose attempts are spent ends the pressed run instead of leaving the press waiting', async () => await withStorePreparationOwner(async () => {
   const place = fixture('spent');
   const { owner } = await preparedStore(place);
@@ -117,6 +161,120 @@ test('a job whose attempts are spent ends the pressed run instead of leaving the
   expect(end?.state).toBe('failed');
   expect((await pressed.status()).fill.state).toBe('failed');
 }), 120_000);
+
+test('a live claim keeps its long-running run from being recovered', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('live');
+  const { owner, database, storeFolder } = await preparedStore(place);
+  const queue = await openFillRunQueue(owner);
+  opened.push(queue);
+  // A run that published nothing for the recovery window, while its own fill-runs job is claimed and heartbeating: the
+  // claim is the product's, whatever the run's own rows last said.
+  const longRun = 'long-running';
+  const old = Date.now() - 10 * 60_000;
+  await createRun(database, { runId: longRun, product: place.name, at: old });
+  await advanceRun(database, { runId: longRun, event: { type: 'plan', at: old + 1_000, configuration: 'fixture' } });
+  await advanceRun(database, { runId: longRun, event: { type: 'start', at: old + 2_000, stages: 1 } });
+  expect((await enqueueFillRun(queue, { product: place.folder, store: storeFolder, runId: longRun })).created).toBe(true);
+  const held = await claimFillRun(queue);
+  if (held === null) throw new Error('the fixture claim was not taken');
+  // The chain follows the run the claim drives, the way the run's own start left it, and the claim is alive now.
+  await writeOrchestration(database, async (tx) => {
+    await openChainIn(tx, { product: place.name, at: old });
+    await advanceChainIn(tx, { product: place.name, event: { type: 'start', at: old + 2_000, runId: longRun } });
+  });
+  await owner.transaction('write', async (tx) => {
+    await tx.query(`UPDATE pgboss.job SET heartbeat_on = clock_timestamp(), started_on = clock_timestamp() WHERE id = $1::uuid`, [held.id]);
+  });
+
+  // A caller that holds no claim of its own asks for another run of the same product.
+  const pressOwner = await createDatabaseOwner({ store: join(storeFolder, 'graph'), connectOnly: true });
+  const other = await startKnowledgeFill({ productFolder: place.folder, storeFolder, runId: 'pressed-behind', database: pressOwner });
+  const answer = await other.done;
+  await other.close().catch(() => undefined);
+  expect(answer.ok).toBe(false);
+  // The live run is untouched: no end of its own, still the state it stood in.
+  expect(await readFillEnd(owner, longRun)).toBeNull();
+  expect((await readRun(database, longRun))?.state).toBe('running');
+}), 120_000);
+
+test('a direct call leaves a run the product\'s queue still holds, and takes the chain once that claim is spent', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('direct');
+  const { owner, database, storeFolder } = await preparedStore(place);
+  const queued = await openFillRunQueue(owner);
+  opened.push(queued);
+  const unitQueue = await createPgBossQueue({ owner, supervise: false });
+  opened.push(unitQueue);
+  await unitQueue.declare({ name: 'fill-units', leaseSeconds: 60, heartbeatSeconds: 30, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+  const orchestrator = createOrchestrator({
+    database, registry: new StageRegistry(), product: place.name, queue: unitQueue, queueName: 'fill-units',
+    configuration: async () => undefined,
+    snapshot: async () => ({ repository: place.folder, defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:fixture' }),
+    graph: () => ({ query: async () => [] }), inputs: () => ({}), operations: fixtureOperations(owner),
+  });
+  // A run nothing moved for far longer than the recovery window, whose `fill-runs` job the queue still holds and whose units
+  // are all done: the run's own rows say "nothing moved", the claim says a process was asked for it and still drives it. A
+  // direct caller — `madarch fill`, the daemon's inline press — reaches this boundary with no claim of its own and never
+  // passes the wrapper's earlier check, which is what let this path take the chain from a live run.
+  const longRun = 'direct-long-run';
+  const old = Date.now() - 10 * 60_000;
+  await createRun(database, { runId: longRun, product: place.name, at: old });
+  await advanceRun(database, { runId: longRun, event: { type: 'plan', at: old + 1_000, configuration: 'fixture' } });
+  await advanceRun(database, { runId: longRun, event: { type: 'start', at: old + 2_000, stages: 1 } });
+  await writeOrchestration(database, async (tx) => {
+    await openChainIn(tx, { product: place.name, at: old });
+    await advanceChainIn(tx, { product: place.name, event: { type: 'start', at: old + 2_000, runId: longRun } });
+  });
+  expect((await enqueueFillRun(queued, { product: place.folder, store: storeFolder, runId: longRun })).created).toBe(true);
+  const held = await claimFillRun(queued);
+  if (held === null) throw new Error('the fixture claim was not taken');
+  await owner.transaction('write', async (tx) => {
+    await tx.query(`UPDATE pgboss.job SET heartbeat_on = clock_timestamp(), started_on = clock_timestamp() WHERE id = $1::uuid`, [held.id]);
+  });
+  const heldByQueue = async (transaction?: Parameters<typeof fillRunHeldElsewhere>[2]) => await fillRunHeldElsewhere(owner, place.folder, transaction);
+  // The direct call is refused at the chain, and the run the claim holds keeps its state and its missing end.
+  const refused = await startRun(orchestrator, { runId: 'direct-new-run', heldByQueue });
+  if (refused.ok) throw new Error(`a direct call took the chain from a run the product's queue still holds: ${JSON.stringify(refused)}`);
+  expect(refused.code).toBe('fill-orchestrator/chain-active');
+  expect(await readFillEnd(owner, longRun)).toBeNull();
+  expect((await readRun(database, longRun))?.state).toBe('running');
+  // The production direct entries — `madarch fill` and the daemon's inline press — reach the same boundary through
+  // `runFill`, which drives a service with no claim of its own: it too is refused, and the live run keeps its state and
+  // its missing end. This is the wiring, not a callback the case supplies.
+  const cli = await runFill({
+    product: place.folder, database: owner, runId: 'direct-cli-run', store: place.home, home: place.home,
+    prepareContract: async (contract) => { await requestStorePreparation(join(storeFolder, 'graph'), contract); },
+  });
+  if (cli.ok) throw new Error(`the direct entry took the chain from a run the product's queue still holds: ${JSON.stringify(cli)}`);
+  expect(cli.code).toBe('fill-orchestrator/chain-active');
+  expect(await readFillEnd(owner, longRun)).toBeNull();
+  expect((await readRun(database, longRun))?.state).toBe('running');
+  // A queue this process cannot open or declare proves nothing either way: asked through the same helper the wiring
+  // reaches, the answer is "not known", and the recovery boundary leaves the prior run where it stands.
+  const unreadable = await createDatabaseOwner({ store: join(storeFolder, 'graph'), connectOnly: true });
+  await unreadable.close();
+  const unreadableQueue = async (transaction?: Parameters<typeof fillRunHeldElsewhere>[2]) => await fillRunHeldElsewhere(unreadable, place.folder, transaction);
+  expect(await fillRunHeldElsewhere(unreadable, place.folder)).toBeNull();
+  expect(await recoverOrphanedRun(orchestrator, { runId: longRun, at: Date.now(), heldByQueue: unreadableQueue })).toBeNull();
+  const refusedUnreadable = await startRun(orchestrator, { runId: 'direct-unreadable-run', heldByQueue: unreadableQueue });
+  if (refusedUnreadable.ok) throw new Error(`a queue that cannot be opened let a direct call end a live run: ${JSON.stringify(refusedUnreadable)}`);
+  expect(refusedUnreadable.code).toBe('fill-orchestrator/chain-active');
+  expect(await readFillEnd(owner, longRun)).toBeNull();
+  expect((await readRun(database, longRun))?.state).toBe('running');
+  // The claim is spent, attempt after attempt, and the queue holds nothing for the run any more: now nothing drives it, and
+  // the same direct call ends it and takes the chain.
+  expect(await queued.fail(FILL_RUN_QUEUE, held, 'the fixture attempt ended without settling')).toBe('retry');
+  await owner.transaction('write', async (tx) => { await tx.query(`UPDATE pgboss.job SET start_after = clock_timestamp() WHERE id = $1::uuid`, [held.id]); });
+  const retried = await claimFillRun(queued);
+  if (retried === null) throw new Error('the fixture retry was not claimed');
+  expect(await queued.fail(FILL_RUN_QUEUE, retried, 'the fixture retry ended without settling')).toBe('failed');
+  expect(await fillRunHeldElsewhere(owner, place.folder)).toBe(false);
+  const taken = await startRun(orchestrator, { runId: 'direct-new-run', heldByQueue });
+  if (!taken.ok) throw new Error(`the direct call was refused after the claim was spent: ${taken.reason}`);
+  expect((await readRun(database, longRun))?.state).toBe('failed');
+  expect((await readFillEnd(owner, longRun))?.state).toBe('failed');
+  expect((await readChain(owner, place.name))?.context.activeRunId).toBe('direct-new-run');
+}), 120_000);
+
 
 test('a planning refusal ends the press, leaves the graph readable, and the same product fills again without a restart', async () => await withStorePreparationOwner(async () => {
   const place = fixture('refusal');
@@ -196,6 +354,55 @@ test('a planning refusal ends the press, leaves the graph readable, and the same
     await role.catch(() => undefined);
   }
 }), 240_000);
+
+test('a live unit job keeps its run from being recovered, and the run is recovered once that job is spent', async () => await withStorePreparationOwner(async () => {
+  const place = fixture('units');
+  const { owner, database } = await preparedStore(place);
+  const unitQueue = await createPgBossQueue({ owner, supervise: false });
+  opened.push(unitQueue);
+  const queueName = 'fill-units';
+  await unitQueue.declare({ name: queueName, leaseSeconds: 60, heartbeatSeconds: 30, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+  const orchestrator = createOrchestrator({
+    database, registry: new StageRegistry(), product: place.name, queue: unitQueue, queueName,
+    configuration: async () => undefined,
+    snapshot: async () => ({ repository: place.folder, defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:fixture' }),
+    graph: () => ({ query: async () => [] }), inputs: () => ({}), operations: fixtureOperations(owner),
+  });
+  // A run that has published nothing for far longer than the recovery window, whose one unit the queue still holds as a
+  // claimed job: the run's own rows say "nothing moved", the queue's claim says a worker holds it. Only the second is the
+  // proof that the run is being worked (ALX-2024, ALX-2026 finding 1).
+  const longRun = 'long-unit-run';
+  const unitId = 'plugin-turns/disk:code.repository';
+  const old = Date.now() - 10 * 60_000;
+  await createRun(database, { runId: longRun, product: place.name, at: old });
+  await advanceRun(database, { runId: longRun, event: { type: 'plan', at: old + 1_000, configuration: 'fixture' } });
+  await advanceRun(database, { runId: longRun, event: { type: 'start', at: old + 2_000, stages: 1 } });
+  await writeOrchestration(database, async (tx) => {
+    await createUnitIn(tx, { unitId, product: place.name, runId: longRun, stageId: 'disk', scopeKey: 'code.repository', inputsDigest: 'fixture', retries: 0, at: old });
+    const admitted = await advanceUnitIn(tx, { unitId, event: { type: 'admit', at: old + 3_000, generation: 1 } });
+    if (!admitted.ok) throw new Error(`the fixture unit was not admitted: ${admitted.refusal.reason}`);
+  });
+  await writeOrchestration(database, async (tx) => {
+    await openChainIn(tx, { product: place.name, at: old });
+    await advanceChainIn(tx, { product: place.name, event: { type: 'start', at: old + 2_000, runId: longRun } });
+  });
+  const enqueued = await unitQueue.enqueue({ queue: queueName, data: { unitId, generation: 1 }, singletonKey: unitId });
+  const [held] = await unitQueue.claim<{ unitId: string; generation: number }>({ queue: queueName });
+  if (held === undefined || held.id !== enqueued.id) throw new Error('the fixture unit job was not claimed');
+
+  // The unit's own row is old, but the job is claimed and heartbeating now: recovery leaves the run alone.
+  expect(await recoverOrphanedRun(orchestrator, { runId: longRun, at: Date.now() })).toBeNull();
+  expect(await readFillEnd(owner, longRun)).toBeNull();
+  expect((await readRun(database, longRun))?.state).toBe('running');
+
+  // The same rows, once the job is spent and nothing holds the unit: now the run has stood still for the window, and it
+  // is recovered — the claim, not the timestamp, is what separated the two answers.
+  expect(await unitQueue.fail(queueName, held, 'the fixture worker ended')).toBe('failed');
+  const recovered = await recoverOrphanedRun(orchestrator, { runId: longRun, at: Date.now() });
+  expect(recovered?.state).toBe('failed');
+  expect((await readFillEnd(owner, longRun))?.state).toBe('failed');
+  expect((await readChain(owner, place.name))?.state).toBe('quiescent');
+}), 120_000);
 
 test('a press that loses the run transition leaves the run\'s own completion its end', async () => await withStorePreparationOwner(async () => {
   const place = fixture('loser');

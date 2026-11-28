@@ -70,6 +70,7 @@ import {
 } from '../graph/fill-state.js';
 import type { RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
+import type { OuterTransaction as QueueTransaction } from '../history-types.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { FillStage, StagePlan } from './stage.js';
 
@@ -2278,40 +2279,43 @@ export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestra
   heartbeat.ownerToken = null;
 }
 
+/**
+ * Whether the product's queue still holds a job for this run: a caller that holds no `fill-runs` claim of its own has no
+ * other proof that a run whose own rows went quiet is still driven by the process that was asked for it (ALX-2024,
+ * ALX-2026 finding 5). Asked with a transaction, the answer is read inside it, so the fence that serialises the run's
+ * writes has the last word; `null` is an answer that proves nothing either way.
+ */
+export type RunHeldElsewhere = (transaction?: QueueTransaction) => Promise<boolean | null>;
+
+/** Whether the product's queue holds the run: true for a hold, and true for a read that failed, which proves no abandonment. */
+async function heldByQueueIn(transaction: QueueTransaction | undefined, held: RunHeldElsewhere | undefined): Promise<boolean> {
+  if (held === undefined) return false;
+  try {
+    return (await held(transaction)) !== false;
+  } catch {
+    return true;
+  }
+}
+
 /** Ends the prior attempt only on pg-boss retry proof; direct runs retain the unchanged-state recovery window. */
 export async function recoverOrphanedRun(
   orchestrator: FillOrchestrator,
-  options: { readonly runId: string; readonly at: number; readonly afterMs?: number; readonly claim?: RunClaim },
+  options: { readonly runId: string; readonly at: number; readonly afterMs?: number; readonly heldByQueue?: RunHeldElsewhere },
 ): Promise<RunRecord | null> {
-  const eligible = (run: RunRecord): boolean => {
-    if (isFinalRunState(run.state) || !['created','planning','running','pausing','cancelling'].includes(run.state)) return false;
-    const queuedRun = options.claim?.job.data as { readonly runId?: unknown } | undefined;
-    return options.claim !== undefined ? queuedRun?.runId === run.runId && options.claim.job.attempt >= 1 : options.at - run.updatedAt >= (options.afterMs ?? RUN_ORPHAN_AFTER_MS);
-  };
+  // The queue's own sweep first: an attempt whose process died is handed back before the claims are read, and a live claim
+  // survives it (ALX-2024). A sweep that fails proves nothing either way, so the run is left alone.
+  if (!(await sweepUnitClaims(orchestrator))) return null;
   const prior = await controlWrite(orchestrator, options.runId, async tx => await readRunIn(tx, options.runId));
   if (!prior || isFinalRunState(prior.state) || !['created','planning','running','pausing','cancelling'].includes(prior.state)) return prior;
-  if (!eligible(prior)) return null;
-  for (const candidate of await readRunUnits(orchestrator.database, options.runId)) {
-    await controlWrite(orchestrator, options.runId, async (tx, events) => {
-      const run = await readRunIn(tx, options.runId);
-      if (!run || !eligible(run)) return;
-      const unit = (await readRunUnitsIn(tx, options.runId)).find(unit => unit.unitId === candidate.unitId && unit.generation === candidate.generation);
-      if (!unit || isFinalUnitState(unit.state)) return;
-      const at = orchestrator.clock(), cause = 'the process that ran it ended';
-      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'skip', at, cause } });
-      if (step.ok) events.push(await appendProgressIn(tx, { runId: options.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-skipped', summary: `${unit.unitId} is skipped: ${cause}` }));
-    });
-  }
-  const result = await controlWrite(orchestrator, options.runId, async (tx, events) => {
-    const run = await readRunIn(tx, options.runId);
-    if (!run || !eligible(run)) return run;
-    const failed = await advanceRunIn(tx, { runId: run.runId, event: { type: 'fail', at: options.at, cause: 'process-ended', detail: 'the process that ran it ended' } });
-    if (!failed.ok) return run;
-    events.push(await appendProgressIn(tx, { runId: run.runId, at: options.at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: 'the run failed: the process that ran it ended' }));
-    return failed.record;
+  if (!(await runIsAbandoned(orchestrator, prior, options))) return null;
+  // The decision is made again inside every write-locked step below (`eligible`): a claim taken between this read and the
+  // transition is a worker that holds the run, and the fence that serialises the run's writes is what the last word on
+  // "nobody holds it" is taken under (ALX-2024).
+  const failed = await failAndSettleRun(orchestrator, {
+    runId: prior.runId, at: options.at, detail: 'the process that ran it ended',
+    eligible: async (tx) => !(await unitsHoldRunIn(tx, orchestrator, prior.runId)) && !(await heldByQueueIn(tx as unknown as QueueTransaction, options.heldByQueue)),
   });
-  if (result && isFinalRunState(result.state)) await settleChain(orchestrator, result.runId, await runEvidence(orchestrator, result.runId));
-  return result;
+  return failed.run;
 }
 
 /**
@@ -2327,6 +2331,11 @@ export async function failAndSettleRun(
     readonly at?: number;
     readonly cause?: 'process-ended' | 'initialization-failed';
     readonly detail: string;
+    /**
+     * Asked again inside every write-locked step, so a reason the caller read outside the lock — "nothing holds this run"
+     * — is re-proved under the fence that serialises the run's writes before anything is skipped or failed.
+     */
+    readonly eligible?: (tx: SqlExecutor) => Promise<boolean>;
   },
 ): Promise<{ readonly run: RunRecord | null; readonly transitioned: boolean; readonly ended: boolean }> {
   const at = options.at ?? orchestrator.clock();
@@ -2335,6 +2344,7 @@ export async function failAndSettleRun(
     await controlWrite(orchestrator, options.runId, async (tx, events) => {
       const run = await readRunIn(tx, options.runId);
       if (!run || isFinalRunState(run.state)) return;
+      if (options.eligible !== undefined && !(await options.eligible(tx))) return;
       const unit = (await readRunUnitsIn(tx, options.runId)).find(unit => unit.unitId === candidate.unitId && unit.generation === candidate.generation);
       if (!unit || isFinalUnitState(unit.state)) return;
       const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'skip', at, cause } });
@@ -2344,6 +2354,7 @@ export async function failAndSettleRun(
   const outcome = await controlWrite(orchestrator, options.runId, async (tx, events) => {
     const run = await readRunIn(tx, options.runId);
     if (!run || isFinalRunState(run.state)) return { run, transitioned: false };
+    if (options.eligible !== undefined && !(await options.eligible(tx))) return { run, transitioned: false };
     const failed = await advanceRunIn(tx, { runId: run.runId, event: { type: 'fail', at, cause, detail: options.detail } });
     if (!failed.ok) return { run, transitioned: false };
     events.push(await appendProgressIn(tx, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: `the run failed: ${options.detail}` }));
@@ -2356,16 +2367,89 @@ export async function failAndSettleRun(
 }
 
 /**
+ * The moment a run last moved, as its own row and its units' rows say: a run that publishes or fails a unit moves a unit
+ * row, so an actively filling run never looks like one nothing drives (ALX-2026 finding 1).
+ */
+export async function lastRunActivityAt(orchestrator: Pick<FillOrchestrator, 'database'>, runId: string): Promise<number | null> {
+  const run = await readRun(orchestrator.database, runId);
+  if (run === null) return null;
+  let at = run.updatedAt;
+  for (const unit of await readRunUnits(orchestrator.database, runId)) at = Math.max(at, unit.updatedAt);
+  return at;
+}
+
+/**
+ * Whether the queue still holds a unit of the run in flight: its own proof that a process works the run, read the way the
+ * scheduler reads an unfinished unit job (ALX-2024, ALX-2026 finding 1). A unit row is written when the unit changes
+ * state, so a long unit that waits on a worker, a plugin read or a retry moves no row for minutes while its job is
+ * alive; the claim, not the row, says whether anyone is there. Every non-final unit is asked, because a run may hold
+ * one job out of several and a caller that recovers it would race the worker still holding that one.
+ */
+async function unitsHoldRunIn(tx: SqlExecutor, orchestrator: { readonly queue?: FillOrchestrator['queue']; readonly queueName?: string }, runId: string): Promise<boolean> {
+  if (orchestrator.queue === undefined || orchestrator.queueName === undefined) return false;
+  for (const unit of (await readRunUnitsIn(tx, runId)).filter(unit => !isFinalUnitState(unit.state))) {
+    // A read that fails is not an answer that nothing holds the unit: it is no proof of abandonment, and a run recovered
+    // on it would race a worker the queue still has (ALX-2024).
+    try {
+      if (await orchestrator.queue.holdsUnfinished(orchestrator.queueName, unit.unitId, tx as unknown as QueueTransaction)) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The queue's sweep of one product's unit claims: false when it could not be asked, which proves nothing either way. */
+async function sweepUnitClaims(orchestrator: { readonly queue?: FillOrchestrator['queue']; readonly queueName?: string }): Promise<boolean> {
+  if (orchestrator.queue === undefined || orchestrator.queueName === undefined) return true;
+  try {
+    await orchestrator.queue.recover(orchestrator.queueName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a run has stood still long enough that nothing drives it any more, as a snapshot read says. */
+async function runIsAbandoned(orchestrator: { readonly database: Pick<FillOrchestrator, 'database'>['database']; readonly queue?: FillOrchestrator['queue']; readonly queueName?: string }, run: RunRecord, options: { readonly at: number; readonly afterMs?: number; readonly heldByQueue?: RunHeldElsewhere }): Promise<boolean> {
+  const activity = await lastRunActivityAt({ database: orchestrator.database }, run.runId);
+  if (activity === null) return false;
+  if (options.at - activity < (options.afterMs ?? RUN_ORPHAN_AFTER_MS)) return false;
+  // The product's run as a whole, not only its units: a run that plans, or stands between two units, moves no row for
+  // minutes while its `fill-runs` job is alive, and that claim — not its rows — says a process is there (ALX-2024,
+  // ALX-2026 finding 5). A queue read that fails is no proof of abandonment.
+  if (await heldByQueueIn(undefined, options.heldByQueue)) return false;
+  // A run whose unit job the queue still holds is being worked, whatever its own rows last said: it is not recovered.
+  const units = await readRunUnits(orchestrator.database, run.runId);
+  for (const unit of units.filter(unit => !isFinalUnitState(unit.state))) {
+    try {
+      if (await orchestrator.queue?.holdsUnfinished(orchestrator.queueName ?? '', unit.unitId) === true) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Opens the product's chain of runs and creates one run in it. A chain that
  * never ran starts this run; a quiescent one wakes for it; a chain already
  * following another run is refused, because one product fills one run at a time.
  */
-export async function startRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly claim?: RunClaim }): Promise<StartedRun | RefusedRunStart> {
+export async function startRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly claim?: RunClaim; readonly heldByQueue?: RunHeldElsewhere }): Promise<StartedRun | RefusedRunStart> {
   const at = orchestrator.clock();
+  // The claim this attempt holds is the run's own lock: one that lapsed is no longer this attempt's to drive, and the
+  // queue has already handed the job to whoever holds it now (ALX-2024).
+  if (options.claim !== undefined) {
+    const held = await writeOrchestration(orchestrator.database, async tx => await options.claim!.queueService.isActive(options.claim!.job, tx));
+    if (!held) return { ok: false, code: 'fill-orchestrator/claim-lapsed', reason: `fill-orchestrator: the queue's claim on run "${options.runId}" lapsed or was handed to another attempt, so this attempt does not drive it` };
+  }
   // Recovery is made of short locked steps; the final start rereads the chain below.
   const known = await writeOrchestration(orchestrator.database, async tx => await openChainIn(tx, { product: orchestrator.product, at }));
-  if (known.context.activeRunId !== null && (known.context.activeRunId !== options.runId || (options.claim?.job.attempt ?? 0) > 0)) {
-    await recoverOrphanedRun(orchestrator, { runId: known.context.activeRunId, at, ...(options.claim === undefined ? {} : { claim: options.claim }) });
+  // Another run of the product that nothing has moved for the recovery window holds the chain: this run takes it only
+  // after that run is ended. A run that moved inside the window is left alone, whoever waits (ALX-2026 finding 1).
+  if (known.context.activeRunId !== null && known.context.activeRunId !== options.runId) {
+    await recoverOrphanedRun(orchestrator, { runId: known.context.activeRunId, at, ...(options.heldByQueue === undefined ? {} : { heldByQueue: options.heldByQueue }) });
   }
   return await writeOrchestration(orchestrator.database, async tx => {
     let chain = await openChainIn(tx, { product: orchestrator.product, at });
