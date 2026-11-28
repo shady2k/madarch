@@ -406,6 +406,11 @@ export function trackedPluginAnswerer(graph: { query(text: string): Promise<read
 async function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): Promise<AgentMeter | undefined> {
   const usage = wiring.agentUsage;
   if (usage === undefined) return undefined;
+  // Only a turn that runs an agent has a session to meter, which is the same eligibility the turn's own agent wiring
+  // states (madarch-rcyu): a deterministic unit, and every unit of a fill without an agent, writes nothing, so reading
+  // the rows its earlier attempts left would be a read no row can answer — two transactions per unit of the fill's own
+  // budget (review ALX-2032; `test/source-follows-fill.test.ts` counted 24 of them over its 12 deterministic units).
+  if (wiring.agent === undefined || unit.plugin.contract?.agent === undefined) return undefined;
   const adopted = await readAgentUsageRows(wiring.owner, usage.run, unit.id);
   return new AgentMeter({
     run: usage.run,
@@ -463,7 +468,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   }
   if (wiring.executeOperation !== undefined) await wiring.executeOperation(id,'producer-scope',{kind:unit.kind.name,plugin:unit.plugin.id},async tx => await declareProducerScope(tx,wiring.contract,unit.kind.name,unit.plugin.id));
   // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
-  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
+  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row and no read.
   const meter = await pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
   const closure = withSpanSync('plugin.closure.verify', {}, () => lockedClosureOf(pluginFolder, unit.lock, wiring.store, import.meta.path));

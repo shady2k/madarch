@@ -111,6 +111,17 @@ assertion and in its cleanup); the rendered Tokens line is covered by
 `test/agent-meter.test.ts`, among them the turn that reports its cost before it
 answers: its row and the completed trace each state the one USD 0.50 charge, and
 the case is red on `0ecabc6`, where the trace's cost list is empty.
+The read runs only for the turn that has an agent to meter, which is the
+eligibility the turn itself states (`wiring.agent` and the plugin's agent part):
+a unit with no agent part, and every unit of a fill without an agent, writes no
+row, so reading what an earlier attempt left would be a read no row can answer —
+and each such read was two transactions of the fill's own query budget (CI run
+46097904262: 531 transactions against the limit of 510 over
+`test/source-follows-fill.test.ts`'s 12 deterministic units, 507 on the base).
+The retry case of `test/agent-meter.test.ts` reads the run's completed trace
+after the trace's own close, not before it: the trace batches its appends
+(`src/obs/trace.ts`), so a read taken first sees only the batch whose timer
+already fired.
 
 ## Acceptance evidence
 Pending the stage acceptance of ALX-1936: the run above is the one-time walk,

@@ -470,12 +470,15 @@ describe('the run\'s trace', () => {
       expect(kind.total).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, runs: 1 });
       // The run's cap counts both attempts' capped tokens once — input, output and cache writes, never the cache reads.
       expect(budget.tokens).toBe(100 + 154);
-      // The trace states the same figure as the row, in the two attempts' own turns.
-      const usage = traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage;
-      expect(usage).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, turns: 2 });
     } finally {
+      // The trace batches its appends (`src/obs/trace.ts`, `TRACE_FLUSH_MS`), so the completed trace is read after the
+      // run's own close has written what the buffer still holds: a read before the close sees only the batch whose timer
+      // already fired, which is how this case read the first attempt alone in CI (madarch-rcyu, run 46097904262).
       closeTrace(trace);
     }
+    // The trace states the same figure as the row, in the two attempts' own turns.
+    const usage = traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage;
+    expect(usage).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, turns: 2 });
   });
 
   test('a turn\'s tokens are the increment the trace adds, never the run\'s cumulative report twice', async () => {
