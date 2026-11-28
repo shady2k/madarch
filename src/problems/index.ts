@@ -115,7 +115,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   const drafts: ProblemDraft[] = [];
   const evidenceProblems = readEvidenceProblems(input);
   try {
-    const snapshot = await readCodeSnapshot(input.graph, input.manifest);
+    const snapshot = await readCodeSnapshot(input.graph, input.manifest, input.settings);
     const judged = evaluateCode(snapshot, input.settings);
     drafts.push(...judged.problems);
     notes.push(...judged.notes);

@@ -68,8 +68,12 @@ const fileLink = (path: string, line?: number): ProblemLink => ({
 const valueLink = (label: string): ProblemLink => ({ label, href: null, key: null });
 
 /** Loads every fact the code rules read. A fact set read short is named in the notes. */
-export async function readCodeSnapshot(graph: GraphReader, manifest: KindsManifest): Promise<CodeSnapshot> {
+export async function readCodeSnapshot(graph: GraphReader, manifest: KindsManifest, settings: ProblemSettings): Promise<CodeSnapshot> {
   const notes: string[] = [];
+  const predicates = new Set(Object.values(settings.rules)
+    .filter((rule) => rule.section === 'code' && rule.enabled !== false)
+    .map((rule) => rule.predicate));
+  const readDependencies = predicates.has('dependency-declared-unused');
   const semantic = async (role: string): Promise<GraphEntity[]> => {
     try {
       const rows = await semanticEntities(graph, manifest, role);
@@ -78,7 +82,6 @@ export async function readCodeSnapshot(graph: GraphReader, manifest: KindsManife
         if (!Array.isArray(owners) || owners.length !== 1 || typeof owners[0] !== 'string') throw new Error(`${manifest.file}:${manifest.semanticBindings!.get(role)!.line}: ${row.key}: route detector requires exactly one explicit owner UID`);
         row.properties['ownerKey'] = owners[0];
       }
-      if (role === 'detector-operation' && !Object.hasOwn(manifest.semanticBindings!.get(role)!.edges ?? {}, 'ownerKeys')) notes.push(`${manifest.file}:${manifest.semanticBindings!.get(role)!.line}: detector-operation has no declared ownership relation; owner-dependent route coverage is not judged`);
       return rows;
     }
     catch (error) { notes.push(`the ${role} rule capability could not be read: ${(error as Error).message}`); return []; }
@@ -106,10 +109,18 @@ export async function readCodeSnapshot(graph: GraphReader, manifest: KindsManife
   };
   const [files, symbols, cycles, routes, operations, dependencies, packages, envVars, envDefinitions, inputs, builds, sinks, debts, flows, serves, defines, usesDependency] = await Promise.all([
     readFiles(), read('code.symbol'), semantic('detector-cycle'), semantic('detector-route'), semantic('detector-operation'),
-    semantic('detector-dependency'), read('code.package'), read('code.env-var'), read('code.env-definition'),
+    readDependencies ? semantic('detector-dependency') : [], read('code.package'), read('code.env-var'), read('code.env-definition'),
     read('code.input'), read('code.sql-build'), read('code.sql-sink'), semantic('detector-debt'),
-    relation('code.flows-into'), relation('code.serves'), relation('code.defines'), relation('code.uses-dependency'),
+    relation('code.flows-into'), relation('code.serves'), relation('code.defines'), readDependencies ? relation('code.uses-dependency') : [],
   ]);
+  const operationBinding = manifest.semanticBindings?.get('detector-operation');
+  if (predicates.has('route-without-operation') && operations.length > 0 && operationBinding !== undefined
+      && !Object.hasOwn(operationBinding.edges ?? {}, 'ownerKeys')) {
+    const servedRoutes = new Set(serves.map((edge) => edge.from.key));
+    if (routes.some((route) => !servedRoutes.has(route.key))) {
+      notes.push(`${manifest.file}:${operationBinding.line}: detector-operation has no declared ownership relation; owner-dependent route coverage is not judged`);
+    }
+  }
   return { files, symbols, cycles, routes, operations, dependencies, packages, envVars, envDefinitions, inputs, builds, sinks, debts, flows, serves, defines, usesDependency, notes };
 }
 
