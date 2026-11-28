@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
+import { enqueueFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { readFillEnd, writeFillEnd } from '../src/graph/fill-orchestration.js';
@@ -67,7 +67,7 @@ test('the language a press names is the one the run records', async () => await 
   let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     queue = await openFillRunQueue(owner);
-    await askFillRun(queue, { product, store: storeFolder, runId: 'language-run', language: 'ru' });
+    await enqueueFillRun(queue, { product, store: storeFolder, runId: 'language-run', language: 'ru' });
     // The role runs until the run it took has ended: the end row the run writes is what says so, and the role's next pass
     // then ends.
     let finished = false;
@@ -108,7 +108,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
   try {
     await createRun(owner, { runId: job.runId, product: job.product, at: Date.now() });
     await writeFillEnd(owner, original);
-    expect(await askFillRun(queue, job)).toBe(true);
+    expect((await enqueueFillRun(queue, job)).created).toBe(true);
     let passes = 0;
     expect(await runFillRole({
       knowledgeRoot,
@@ -119,7 +119,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
     expect(await readFillEnd(owner, job.runId)).toEqual(original);
     expect(existsSync(join(storeFolder, 'traces', `${job.runId}.jsonl`))).toBe(false);
     // Completion releases the product's singleton, unlike an unfinished retry.
-    expect(await askFillRun(queue, { ...job, runId: 'next-run' })).toBe(true);
+    expect((await enqueueFillRun(queue, { ...job, runId: 'next-run' })).created).toBe(true);
   } finally {
     await queue.stop();
     await owner.close();

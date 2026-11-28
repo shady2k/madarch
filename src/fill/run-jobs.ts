@@ -10,7 +10,7 @@ import { createPgBossQueue, DEFAULT_QUEUE_SCHEMA } from '../adapters/pg-boss-que
 import { withSpan } from '../obs/trace.js';
 import { RUN_JOB_LEASE_SECONDS } from './orchestrator-host.js';
 import { RUN_JOB_HEARTBEAT_SECONDS } from './queue-limits.js';
-import type { ClaimedJob, QueueService } from './queue.js';
+import type { ClaimedJob, EnqueueResult, FailOutcome, QueueService } from './queue.js';
 
 /** The queue one product's fill requests wait in, at the product's store database: its claim is the run's lock. */
 export const FILL_RUN_QUEUE = 'fill-runs';
@@ -67,11 +67,10 @@ export async function openFillRunQueue(owner: QueueOwner): Promise<QueueService>
   });
 }
 
-/** Asks for one fill of one product: answers whether the queue created the job, or a press of it already waits. */
-export async function askFillRun(queue: QueueService, job: FillRunJob): Promise<boolean> {
+/** Asks for one fill of one product: the job the queue created, or that a press of it already waits. */
+export async function enqueueFillRun(queue: QueueService, job: FillRunJob): Promise<EnqueueResult> {
   return await withSpan('fill.job.ask', { 'madarch.product': job.product, 'madarch.run': job.runId }, async () => {
-    const created = await queue.enqueue({ queue: FILL_RUN_QUEUE, data: job, singletonKey: job.product });
-    return created.created;
+    return await queue.enqueue({ queue: FILL_RUN_QUEUE, data: job, singletonKey: job.product });
   });
 }
 
@@ -83,10 +82,17 @@ export async function claimFillRun(queue: QueueService): Promise<ClaimedJob<Fill
   });
 }
 
-/** Settles one claimed fill: a run that ended settles the job, and one that failed is retried by the queue once. */
-export async function settleFillRun(queue: QueueService, job: ClaimedJob<FillRunJob>, outcome: { readonly ok: boolean; readonly message?: string }): Promise<void> {
-  await withSpan('fill.job.settle', { 'madarch.run': job.data.runId, 'madarch.outcome': outcome.ok ? 'done' : 'failed' }, async () => {
-    if (outcome.ok) await queue.complete(FILL_RUN_QUEUE, job, { runId: job.data.runId });
-    else await queue.fail(FILL_RUN_QUEUE, job, outcome.message ?? `the fill of ${job.data.product} ended without an answer`);
+/**
+ * Settles one claimed fill: a run that ended settles the job done, and one whose attempt gave up is retried by the queue.
+ * The answer says which happened, because a job whose retries are spent is the last attempt the run gets and what it
+ * leaves behind is that process's to end (ALX-2024).
+ */
+export async function settleFillRun(queue: QueueService, job: ClaimedJob<FillRunJob>, outcome: { readonly ok: boolean; readonly message?: string }): Promise<'completed' | FailOutcome> {
+  return await withSpan('fill.job.settle', { 'madarch.run': job.data.runId, 'madarch.outcome': outcome.ok ? 'done' : 'failed' }, async () => {
+    if (outcome.ok) {
+      await queue.complete(FILL_RUN_QUEUE, job, { runId: job.data.runId });
+      return 'completed' as const;
+    }
+    return await queue.fail(FILL_RUN_QUEUE, job, outcome.message ?? `the fill of ${job.data.product} ended without an answer`);
   });
 }

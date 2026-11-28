@@ -508,6 +508,7 @@
     "test/graph-read-batching.test.ts": 11910,
     "test/problems-without-documents.test.ts": 20210,
     "test/entity-cli-daemon.test.ts": 8495,
-    "test/logs-graphql.test.ts": 25580
+    "test/logs-graphql.test.ts": 25580,
+    "test/fill-run-recovery.test.ts": 157617
   }
 }

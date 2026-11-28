@@ -35,6 +35,7 @@ import {
   recordRunConfigurationIn, recordRunStagePlannedIn,
   recordUnitPlanIn,
   sealSplitIn,
+  writeFillEndIfAbsent,
   type ProgressKind,
   type RunSnapshot,
   type UnitPlanRecord,
@@ -2314,6 +2315,47 @@ export async function recoverOrphanedRun(
 }
 
 /**
+ * Ends a run that will not finish, releasing what it holds before its end is published: every unit it did not finish is
+ * skipped, the run reaches `failed` with the cause, the chain it held is settled, and — only when this call is the one
+ * that moved the run — its end is written (ALX-2024). A caller that finds the run already terminal writes nothing and
+ * publishes nothing: the end a run has is the answer, and a recovery racing a normal completion never replaces it.
+ */
+export async function failAndSettleRun(
+  orchestrator: RunCleanupContext,
+  options: {
+    readonly runId: string;
+    readonly at?: number;
+    readonly cause?: 'process-ended' | 'initialization-failed';
+    readonly detail: string;
+  },
+): Promise<{ readonly run: RunRecord | null; readonly transitioned: boolean; readonly ended: boolean }> {
+  const at = options.at ?? orchestrator.clock();
+  const cause = options.cause ?? 'process-ended';
+  for (const candidate of await readRunUnits(orchestrator.database, options.runId)) {
+    await controlWrite(orchestrator, options.runId, async (tx, events) => {
+      const run = await readRunIn(tx, options.runId);
+      if (!run || isFinalRunState(run.state)) return;
+      const unit = (await readRunUnitsIn(tx, options.runId)).find(unit => unit.unitId === candidate.unitId && unit.generation === candidate.generation);
+      if (!unit || isFinalUnitState(unit.state)) return;
+      const step = await advanceUnitIn(tx, { unitId: unit.unitId, event: { type: 'skip', at, cause } });
+      if (step.ok) events.push(await appendProgressIn(tx, { runId: options.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-skipped', summary: `${unit.unitId} is skipped: ${cause}` }));
+    });
+  }
+  const outcome = await controlWrite(orchestrator, options.runId, async (tx, events) => {
+    const run = await readRunIn(tx, options.runId);
+    if (!run || isFinalRunState(run.state)) return { run, transitioned: false };
+    const failed = await advanceRunIn(tx, { runId: run.runId, event: { type: 'fail', at, cause, detail: options.detail } });
+    if (!failed.ok) return { run, transitioned: false };
+    events.push(await appendProgressIn(tx, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: `the run failed: ${options.detail}` }));
+    return { run: failed.record, transitioned: true };
+  });
+  if (!outcome.transitioned || outcome.run === null) return { run: outcome.run, transitioned: false, ended: false };
+  await settleChain(orchestrator, outcome.run.runId, await runEvidence(orchestrator, outcome.run.runId));
+  const ended = await writeFillEndIfAbsent(orchestrator.database, { runId: outcome.run.runId, state: 'failed', message: options.detail });
+  return { run: outcome.run, transitioned: true, ended };
+}
+
+/**
  * Opens the product's chain of runs and creates one run in it. A chain that
  * never ran starts this run; a quiescent one wakes for it; a chain already
  * following another run is refused, because one product fills one run at a time.
@@ -2351,7 +2393,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * that waits for a retry whose moment has come counts as runnable: the next
  * sweep makes it so, and a run is not finished while it waits.
  */
-export async function runEvidence(orchestrator: RunControlContext, runId: string, state?: () => Promise<Pick<RunStateSnapshot, 'units' | 'producerOutcomes'>>): Promise<RunEvidence> {
+export async function runEvidence(orchestrator: Pick<FillOrchestrator, 'database'>, runId: string, state?: () => Promise<Pick<RunStateSnapshot, 'units' | 'producerOutcomes'>>): Promise<RunEvidence> {
   const snapshot = state === undefined ? undefined : await state();
   const units = snapshot === undefined ? await readRunUnits(orchestrator.database, runId) : snapshot.units;
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
@@ -2392,7 +2434,7 @@ export interface RunSettleOutcome {
  * finish becomes skipped, with the failed unit it waited on in its reason; the
  * publication of every unit that did finish stays done.
  */
-async function controlWrite<T>(orchestrator: RunControlContext, runId: string, apply: (tx: OwnerTransaction, events: FillProgressEvent[]) => Promise<T>, afterCommit?: (result: T) => void): Promise<T> {
+async function controlWrite<T>(orchestrator: RunCleanupContext, runId: string, apply: (tx: OwnerTransaction, events: FillProgressEvent[]) => Promise<T>, afterCommit?: (result: T) => void): Promise<T> {
   const events: FillProgressEvent[] = [];
   const result = await writeOrchestration(orchestrator.database, async tx => {
     if (await readRunIn(tx, runId)) await lockFillScope(tx, runId);
@@ -2403,13 +2445,13 @@ async function controlWrite<T>(orchestrator: RunControlContext, runId: string, a
   return result;
 }
 
-async function controlEvidenceIn(tx: SqlExecutor, orchestrator: RunControlContext, runId: string): Promise<RunEvidence> {
+async function controlEvidenceIn(tx: SqlExecutor, orchestrator: RunCleanupContext, runId: string): Promise<RunEvidence> {
   const units = await readRunUnitsIn(tx, runId);
   const producerOutcomes = await readProducerOutcomesIn(tx, { runId });
   return await runEvidence(orchestrator, runId, async () => ({ units, producerOutcomes }));
 }
 
-async function skipOutstandingUnits(orchestrator: RunControlContext, run: RunRecord, reason: string, _state?: RunStateReader): Promise<readonly string[]> {
+async function skipOutstandingUnits(orchestrator: RunCleanupContext, run: RunRecord, reason: string, _state?: RunStateReader): Promise<readonly string[]> {
   const units = await readRunUnits(orchestrator.database, run.runId);
   const skipped: string[] = [];
   for (const candidate of units) {
@@ -2485,7 +2527,7 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
 }
 
 /** Settles the product's chain to quiescent once its run finished and nothing is outstanding. */
-async function settleChain(orchestrator: RunControlContext, runId: string, _evidence: RunEvidence): Promise<void> {
+async function settleChain(orchestrator: RunCleanupContext, runId: string, _evidence: RunEvidence): Promise<void> {
   await controlWrite(orchestrator, runId, async tx => {
     const chain = await readChainRecordIn(tx, orchestrator.product);
     const run = await readRunIn(tx, runId);
@@ -2497,6 +2539,13 @@ async function settleChain(orchestrator: RunControlContext, runId: string, _evid
 
 /** Durable cancellation and settlement need no registry, source, queue or executor. */
 export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'> & {readonly operations:Pick<UnitOperations,'setRunState'>} & { readonly heartbeat?: FillOrchestrator['heartbeat'] };
+
+/**
+ * What ending a run touches, and all it needs (ALX-2024): the rows the run's own machine writes, the product whose chain
+ * follows it, the clock its events are stamped with and the sink that hears them. A caller that ends a run it did not
+ * build — the fill role, the api's own poll, the fill's own failed attempt — holds these and nothing else.
+ */
+export type RunCleanupContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock'> & { readonly sink?: FillOrchestrator['sink'] };
 
 /** What one cancellation did. */
 export interface CancelOutcome {

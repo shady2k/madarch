@@ -19,7 +19,7 @@ import { productsHome } from '../src/product/home.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import { openFillRunQueue, askFillRun } from '../src/fill/run-jobs.js';
+import { openFillRunQueue, enqueueFillRun } from '../src/fill/run-jobs.js';
 
 /** How long the child and the store's server are given after the server is killed: the rule the walk asked for. */
 const GONE_WITHIN_MS = 2_000;
@@ -257,7 +257,7 @@ test('a server asked to stop with SIGTERM gives its fill role and stores up, and
     // the one that keeps the store up.
     await prepareStore(owner);
     pressed = await openFillRunQueue(owner);
-    await askFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
+    await enqueueFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
   } finally {
     // The queue before the owner it runs on: pg-boss's heartbeat asks its owner for a statement every 30 s, and one asked
     // after the owner closed throws into whatever the process does then — another file's case, in a `bun test` run
