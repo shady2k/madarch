@@ -50,7 +50,10 @@ type QueueOwner = Parameters<typeof createPgBossQueue>[0]['owner'];
 
 export async function openFillRunQueue(owner: QueueOwner): Promise<QueueService> {
   return await withSpan('fill.job.queue', {}, async () => {
-    const queue = await createPgBossQueue({ owner, schema: DEFAULT_QUEUE_SCHEMA, supervise: false });
+    // No background supervisor of its own — a role that stops leaves no timer — but an explicit `recover` is not held
+    // back by the adapter's minute-long pass interval: an abandoned claim is swept within ten seconds of being asked
+    // about (ALX-2024).
+    const queue = await createPgBossQueue({ owner, schema: DEFAULT_QUEUE_SCHEMA, supervise: false, superviseIntervalSeconds: 10 });
     // The claimed job is the run's own lock while it runs (decision 0039, item 12): its lease is the worst case
     // one fill may take, its heartbeat is renewed by the process that runs it, and its one retry is the claim a
     // next process takes when the process that held the run ended.

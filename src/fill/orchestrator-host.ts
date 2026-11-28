@@ -347,6 +347,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       if ('ok' in built) return built;
       const orchestrator = built;
       beginRunHeartbeat(orchestrator, request.runId, request.claim);
+      // The claim's heartbeat lasts as long as this attempt drives the run: an attempt that returned — settled,
+      // refused or given up — leaves a claim that is no longer this process's to keep alive (ALX-2024).
+      try {
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
       const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId, ...(request.claim === undefined ? {} : { claim: request.claim }) }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
@@ -372,6 +375,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
         reused, foundNothing,
       };
+      } finally { stopHeartbeat(orchestrator); }
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
       const built = await orchestratorFor(request.product);
