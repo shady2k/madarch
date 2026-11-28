@@ -901,17 +901,29 @@ async function planStageUnitsSpanned(
           continue;
         }
         // A generation that published nothing, of a run that has ended, is the unit's last attempt: a new fill retries
-        // it with a fresh budget rather than refusing forever. Only a generation of a run that has not ended — a unit
-        // another run is working — is refused, which is what "a unit is worked by one run at a time" says.
+        // it with a fresh budget rather than refusing forever. A generation such a run left live without publishing it —
+        // a crash between the run's end and the settlement of its units, or one a run that ended before it settled what
+        // it held left behind — is released first the way that run's own end releases it, the cancel such a run's
+        // generations still take, and the retry opens this run's generation over it in the same transaction, so a run
+        // the stand still holds never blocks every later fill (ALX-2023, madarch-47vw.8). Only a generation of a run
+        // that has not ended — a unit another run is working — is refused, which is what "a unit is worked by one run at
+        // a time" says.
         const owner = await readRun(database, answer.runId);
         const ended = owner === null || ENDED_RUN_STATES.includes(owner.state);
-        if (ended && RETRYABLE_UNIT_STATES.includes(answer.state)) {
+        if (ended && (RETRYABLE_UNIT_STATES.includes(answer.state) || LIVE_UNPUBLISHED_UNIT_STATES.includes(answer.state))) {
           let generationEvent: FillProgressEvent | undefined;
           const retried = await writeOrchestration(database, async tx => {
             await lockFillScope(tx, run.runId);
             const current = await readUnitIn(tx, unitId);
             const owner = current === null ? null : await readRunIn(tx, current.runId);
-            if (current?.generation !== answer.generation || (owner !== null && !ENDED_RUN_STATES.includes(owner.state))) raise(`unit "${unitId}" changed ownership while a retry was prepared`);
+            if (current === null || current.generation !== answer.generation || (owner !== null && !ENDED_RUN_STATES.includes(owner.state))) raise(`unit "${unitId}" changed ownership while a retry was prepared`);
+            if (!RETRYABLE_UNIT_STATES.includes(current.state)) {
+              // Nothing may move a generation its run ended but the cancel the run's own end would have taken; a record
+              // that stands elsewhere moved under this planning, so the retry is not prepared over a guess.
+              if (!LIVE_UNPUBLISHED_UNIT_STATES.includes(current.state)) raise(`unit "${unitId}" stands ${current.state} while a retry was prepared`);
+              const released = await advanceUnitIn(tx, { unitId, event: { type: 'cancel', at, cause: `run "${current.runId}" ended without publishing generation ${String(current.generation)}` } });
+              if (!released.ok) return released;
+            }
             const retried = await retryGenerationIn(tx, { unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
             if (retried.ok) {
           await recordUnitPlanIn(tx, {
@@ -943,6 +955,15 @@ async function planStageUnitsSpanned(
     }
   return { stageId, units, reused, foundNothing };
 }
+
+/**
+ * The states a generation its run ended stands in without having published
+ * anything: work the run's end revoked, never its answer, so a later run may
+ * release it and open its own generation over it (madarch-47vw.8). `blocked`
+ * stands among these states too but is retried as itself, from
+ * `RETRYABLE_UNIT_STATES`.
+ */
+const LIVE_UNPUBLISHED_UNIT_STATES: readonly string[] = ['planned', 'ready', 'running', 'waiting_children', 'retry_wait'];
 
 /**
  * The stages of one run that are due to be planned again (madarch-tzte.26.3):
@@ -2051,6 +2072,50 @@ async function retryAttempt(
 }
 
 /**
+ * The child generation one split seals, decided under the seal's own scope
+ * lock (ALX-2023, madarch-47vw.8): the generation this run already stands on
+ * when the child is its own, and otherwise this run's generation opened over
+ * what an ended run left. A generation an ended run left live without
+ * publishing is released first, the cancel such a run's generations still
+ * take, and a generation that ended without publishing is retried; both steps
+ * open this run's generation over it, so the seal names the generation this
+ * run will actually join. A generation of a run that has not ended, and one
+ * that already published, is refused: a child of a split is this run's to
+ * seal, and a published generation is work this split inherits rather than
+ * reopens.
+ */
+async function sealedChildGenerationIn(
+  tx: OwnerTransaction,
+  options: { readonly unitId: string; readonly product: string; readonly runId: string; readonly stageId: string; readonly scopeKey: string; readonly inputsDigest: string; readonly retries: number; readonly at: number },
+): Promise<{ readonly ok: true; readonly record: UnitRecord } | { readonly ok: false; readonly reason: string }> {
+  const current = await readUnitIn(tx, options.unitId);
+  const create = async (): Promise<UnitRecord> => await createUnitIn(tx, {
+    unitId: options.unitId, product: options.product, runId: options.runId, stageId: options.stageId,
+    scopeKey: options.scopeKey, inputsDigest: options.inputsDigest, retries: options.retries, at: options.at,
+  });
+  if (current === null) return { ok: true, record: await create() };
+  if (current.runId === options.runId) {
+    // The same run's own child: a repeat split converges on the generation it already opened.
+    if (current.inputsDigest !== options.inputsDigest) return { ok: false, reason: `its generation ${String(current.generation)} stands on inputs ${current.inputsDigest}, which are not this split's ${options.inputsDigest}` };
+    return { ok: true, record: current };
+  }
+  const owner = await readRunIn(tx, current.runId);
+  const stands = owner === null ? '' : `, which stands ${owner.state}`;
+  if (owner !== null && !ENDED_RUN_STATES.includes(owner.state)) {
+    return { ok: false, reason: `it stands in run "${current.runId}"${stands}: a child of this split is this run's to seal` };
+  }
+  if (!RETRYABLE_UNIT_STATES.includes(current.state)) {
+    if (!LIVE_UNPUBLISHED_UNIT_STATES.includes(current.state)) {
+      return { ok: false, reason: `it stands in run "${current.runId}"${stands}, and its generation ${String(current.generation)} is ${current.state}: a child of this split is this run's to seal` };
+    }
+    const released = await advanceUnitIn(tx, { unitId: options.unitId, event: { type: 'cancel', at: options.at, cause: `run "${current.runId}" ended without publishing generation ${String(current.generation)}` } });
+    if (!released.ok) return { ok: false, reason: released.refusal.reason };
+  }
+  const retried = await retryGenerationIn(tx, { unitId: options.unitId, runId: options.runId, inputsDigest: options.inputsDigest, retries: options.retries, at: options.at });
+  return retried.ok ? { ok: true, record: retried.record } : { ok: false, reason: retried.refusal.reason };
+}
+
+/**
  * Seals the child set of a split: the children are created, each with its own
  * place in the plan and its own inputs digest, and the parent's checkpoint lands
  * in the same transaction, so a parent is waiting for exactly the children that
@@ -2101,7 +2166,14 @@ async function splitAttempt(
     const existing = await readUnit(database, childUnitId);
     if (existing === null) continue;
     if (existing.runId !== unit.runId) {
-      return await refuse(`the split names "${childUnitId}" as a child, and it stands in run "${existing.runId}": a child of this split is this run's to seal`);
+      const owner = await readRun(database, existing.runId);
+      const ended = owner === null || ENDED_RUN_STATES.includes(owner.state);
+      // A child generation an ended run left unpublished — live, or ended retryable — is recovered under the seal's
+      // own lock, in the transaction below; anything else another run stands on is refused here.
+      if (!ended || !(RETRYABLE_UNIT_STATES.includes(existing.state) || LIVE_UNPUBLISHED_UNIT_STATES.includes(existing.state))) {
+        return await refuse(`the split names "${childUnitId}" as a child, and it stands in run "${existing.runId}"${owner === null ? '' : `, which stands ${owner.state}`}: a child of this split is this run's to seal`);
+      }
+      continue;
     }
     const childRef: UnitRef = { stageId: unit.stageId, stageUnitId: child.id, unitId: childUnitId, scope: child.scope, generation: existing.generation };
     const childDigest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(childRef)), versions: stageCacheVersions(stageOf(orchestrator, unit.stageId)) });
@@ -2147,10 +2219,12 @@ async function splitAttempt(
     for (const [index, child] of request.children.entries()) {
       const childUnitId = unitIdFor(unit.stageId, child.id);
       const digest = childDigests[index]!;
-      const created = await createUnitIn(executor, {
+      const realized = await sealedChildGenerationIn(executor, {
         unitId: childUnitId, product: orchestrator.product, runId: unit.runId, stageId: unit.stageId,
         scopeKey: child.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
       });
+      if (!realized.ok) throw new SplitRefused({ code: 'fill-orchestrator/unit-in-another-run', reason: `the split names "${childUnitId}" as a child, and ${realized.reason}` });
+      const created = realized.record;
       await recordUnitPlanIn(executor, {
         unitId: childUnitId, generation: created.generation, runId: unit.runId, stageId: unit.stageId,
         stageUnitId: child.id, scope: child.scope, stagePosition: request.plan.stagePosition,
