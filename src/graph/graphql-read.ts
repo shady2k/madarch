@@ -1309,13 +1309,28 @@ export class ReadContext {
   /** The entities whose label or text holds the words asked: their node, their kind, the matched value and how well. */
   private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined, limit: number, grouped = false): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number; total: number }[]> {
     if (text.trim() === '') return [];
+    const kinds = this.published.kinds.filter(({ name }) =>
+      wanted === undefined || wanted.has(name) || wanted.has(kindTypeNameOf(name)));
+    if (kinds.length === 0) return [];
+    // An unfilled product declares many kinds without vertices. Exclude them before generating field expressions.
+    // The ordered probe seeks to each kind's first stored vertex, regardless of its visibility in this snapshot.
+    const { rows } = await this.tx.query<{ name: string }>(
+      `SELECT en.name
+       FROM entity en
+       CROSS JOIN LATERAL (
+         SELECT entity_id FROM node WHERE entity_id >= en.id ORDER BY entity_id LIMIT 1
+       ) first_node
+       WHERE en.name = ANY($1::text[]) AND first_node.entity_id = en.id`,
+      [kinds.map(({ name }) => name)],
+    );
+    const present = new Set(rows.map(({ name }) => name));
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
     const prefix = sql.param(`${text}%`, '::text');
     const parts: string[] = [];
     const names: string[] = [];
-    for (const kind of this.published.kinds) {
-      if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(kindTypeNameOf(kind.name))) continue;
+    for (const kind of kinds) {
+      if (!present.has(kind.name)) continue;
       // Immutable content is evidence, not a search index; the declaration names its content field.
       const contentField = this.manifest.kinds.get(kind.name)?.evidence?.contentField;
       const searched = kind.fields.filter((field) => field.type === 'text' && field.name !== contentField);

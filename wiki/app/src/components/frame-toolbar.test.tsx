@@ -4,7 +4,7 @@
  * closes the answers on a press elsewhere; beside it stand the live run, madarch's own docs and the reader's controls.
  */
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
-import type { LiveRun } from '../components/run-indicator.js';
+import type { ComponentProps } from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -46,26 +46,27 @@ beforeEach(() => {
   }) as unknown as typeof fetch;
 });
 
-async function render(products: readonly { name: string; folder: string; own?: true }[] = [], current = 'shop', base = '', run: LiveRun = { live: false, run: null, own: false }): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
+async function render(props: Partial<ComponentProps<typeof FrameToolbar>> = {}): Promise<{ container: HTMLElement; opened: string[]; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   const opened: string[] = [];
   await act(async () => {
     root.render(createElement(FrameToolbar, {
-      base,
+      base: '',
       language: 'en',
       role: 'developer',
       roles: ['developer'],
       busy: false,
       menu: null,
       open: (address: string) => { opened.push(address); },
-      run,
-      products,
-      currentProduct: current,
+      run: { live: false, run: null, own: false },
+      products: [],
+      currentProduct: 'shop',
       onLanguage: () => undefined,
       onRole: () => undefined,
       onReload: () => undefined,
+      ...props,
     }));
   });
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -74,6 +75,18 @@ async function render(products: readonly { name: string; folder: string; own?: t
 async function settle(): Promise<void> {
   for (let at = 0; at < 20; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
 }
+
+test('the toolbar localizes its reason while a page is loading', async () => {
+  const page = await render({ busy: true });
+  try {
+    const reload = page.container.querySelector<HTMLButtonElement>('[data-testid="reload"]');
+    expect(reload?.disabled).toBe(true);
+    const reason = document.getElementById(reload?.getAttribute('aria-describedby') ?? '');
+    expect(reason?.textContent).toBe('Loading…');
+  } finally {
+    await page.close();
+  }
+});
 
 test('Ctrl+K puts the field in hand from anywhere on the page', async () => {
   const page = await render();
@@ -154,7 +167,7 @@ test('at a phone\'s width the search stands behind its toggle, which opens the f
 });
 
 test('the «?» opens madarch\'s own wiki when this server serves it beside the product in front', async () => {
-  const page = await render([{ name: 'Shop', folder: 'shop' }, { name: 'Madarch', folder: 'madarch-wiki', own: true }]);
+  const page = await render({ products: [{ name: 'Shop', folder: 'shop' }, { name: 'Madarch', folder: 'madarch-wiki', own: true }] });
   try {
     const help = page.container.querySelector('[data-testid="help-link"]') as HTMLAnchorElement | null;
     expect(help?.getAttribute('href')).toBe('/products/madarch-wiki/');
@@ -162,7 +175,7 @@ test('the «?» opens madarch\'s own wiki when this server serves it beside the 
   } finally {
     await page.close();
   }
-  const own = await render([{ name: 'Madarch', folder: 'madarch-wiki', own: true }], 'madarch-wiki');
+  const own = await render({ products: [{ name: 'Madarch', folder: 'madarch-wiki', own: true }], currentProduct: 'madarch-wiki' });
   try {
     expect(own.container.querySelector('[data-testid="help-link"]')).toBeNull();
   } finally {
@@ -171,7 +184,7 @@ test('the «?» opens madarch\'s own wiki when this server serves it beside the 
 });
 
 test('the product menu lists the served products, the one in front marked, and opens another', async () => {
-  const page = await render([{ name: 'Shop', folder: 'shop' }, { name: 'Docs', folder: 'docs' }], 'shop', '/products/shop');
+  const page = await render({ products: [{ name: 'Shop', folder: 'shop' }, { name: 'Docs', folder: 'docs' }], base: '/products/shop' });
   try {
     const trigger = page.container.querySelector('[data-testid="product-menu"]') as HTMLElement | null;
     expect(trigger).not.toBeNull();
@@ -195,14 +208,14 @@ test('the bar carries one fill control: the run while it goes, the press otherwi
     expect(idle.container.querySelectorAll('[data-testid="fill-entry"]')).toHaveLength(1);
     expect(idle.container.querySelectorAll('[data-testid="run-indicator"]')).toHaveLength(0);
   } finally { await idle.close(); }
-  const live = await render([], 'shop', '', { live: true, own: false, run: { runId: 'fill-1', phase: 'running', publishedUnits: 0, units: [{}, {}] } as never });
+  const live = await render({ run: { live: true, own: false, run: { runId: 'fill-1', phase: 'running', publishedUnits: 0, units: [{}, {}] } as never } });
   try {
     // The regression the owner named: two fill controls stand on the bar while a run goes.
     expect(live.container.querySelectorAll('[data-testid="fill-entry"]')).toHaveLength(0);
     expect(live.container.querySelectorAll('[data-testid="run-indicator"]')).toHaveLength(1);
     expect(live.container.querySelectorAll('[data-testid="fill-entry"], [data-testid="run-indicator"]')).toHaveLength(1);
   } finally { await live.close(); }
-  const own = await render([], 'shop', '', { live: false, run: null, own: true });
+  const own = await render({ run: { live: false, run: null, own: true } });
   try {
     expect(own.container.querySelectorAll('[data-testid="fill-entry"], [data-testid="run-indicator"]')).toHaveLength(0);
   } finally { await own.close(); }

@@ -791,13 +791,17 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
     vertices: [{ ...repository, values: {}, producer: 'search', producerVersion: '1' }, ...Array.from({ length: 60 }, (_, at) => ({ kind: 'demo.file', keyEdges: { repository }, key: { path: `search-bound-${String(at)}.ts` }, values: {}, producer: 'search', producerVersion: '1' }))], edges: [], removals: [],
   }, 1, { author: 'search@1' }); });
   const transferred: number[] = [];
+  let searchParameters: readonly unknown[] = [];
   const wrapped: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, (tx) => work({ ...tx, query: async (sql: string, values?: readonly unknown[]) => {
     const answer = await tx.query(sql, values);
-    if (sql.startsWith('WITH hits AS')) transferred.push(answer.rows.length);
+    if (sql.startsWith('WITH hits AS')) {
+      transferred.push(answer.rows.length);
+      searchParameters = values ?? [];
+    }
     return answer;
   } } as OuterTransaction)) };
-  const run = async (query: string) => {
-    const result = await executeGraphql(wrapped, { manifest, folder }, { query });
+  const run = async (query: string, searchManifest: KindsManifest = manifest) => {
+    const result = await executeGraphql(wrapped, { manifest: searchManifest, folder }, { query });
     const body = result.body as MessageBody;
     expect(body.errors).toBeUndefined();
     return body.data as Record<string, unknown>;
@@ -815,6 +819,16 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   // Each answer names the text of the field the words were found in: the row's excerpt under its title.
   for (const hit of (grouped['searchGroups'] as { results: { matched: string }[] }[])[0]!.results) expect(hit.matched).toContain('search-bound');
   expect(transferred.pop()).toBeLessThanOrEqual(40);
+
+  // Like a fresh catalogue, the schema declares a searchable kind before it has any records.
+  const fixture = manifest as KindsManifest;
+  const kinds = new Map(fixture.kinds);
+  kinds.set('demo.empty', { ...kinds.get('demo.repository')!, name: 'demo.empty' });
+  searchParameters = [];
+  const unfiltered = await run('{ searchGroups(text: "search-bound", perKind: 2) { kind count } }', { ...fixture, kinds });
+  expect(unfiltered['searchGroups']).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'demo.file', count: 60 })]));
+  expect(searchParameters).toContain('demo.file');
+  expect(searchParameters).not.toContain('demo.empty');
 });
 
 
