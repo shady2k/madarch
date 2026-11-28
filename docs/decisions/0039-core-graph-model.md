@@ -847,6 +847,26 @@ result: field path, span, candidates `{uid, kind, label, domain}`. It never
 creates an edge. Templates show these suggestions and unresolved plain names
 without inventing targets; ambiguous terms include the domain (item 35).
 
+Scanning covers authored graph prose, not every string the graph stores. Three
+kinds of payload are written verbatim and never scanned (madarch-47vw.9): the
+content field of an immutable evidence kind (item 31), whose exact bytes its
+digest answers for and whose spans a modified byte would move; a field the
+engine writes, declared `mentions: false` in the contract — run, unit,
+progress, unread, problem, tracked-read and kind-applicability diagnostics,
+including the plan record and the paths the engine itself read — whose own
+words keep their exact text, including a refusal that quotes the reserved token
+it refused, so recording that refusal is not a second authored write; and
+`system.operation.words`, the verbatim record of the request as the writer
+received it. `words` is not a diagnostic and not a field of the entity being
+written: an author's HTTP edit states a person's own request text there
+(`src/server/knowledge.ts`), so it may hold user input, it is stored exactly as
+given, and a token in it neither refuses nor creates a mention edge. A
+declaration change cannot reach this boundary: an author's fields, key fields
+and string values inside authored JSON stay strictly governed by this item, so
+an authored malformed token still refuses and an authored mention still
+materializes its edge. Writers and hint suggestions read the one predicate
+that decides it.
+
 ### 30. GraphQL and command contracts change together with 0036
 
 Engineering decision (madarch-64o5.137), using Kubernetes versioned API schemas

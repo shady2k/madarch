@@ -162,6 +162,8 @@
     "test/graph-generated-page.test.ts": 24400,
     "test/graph-immutable-evidence.test.ts": 4313,
     "test/graph-journal-replay.test.ts": 11400,
+    "test/graph-mentions-boundary.test.ts": 4972,
+    "test/graph-mentions-fill.test.ts": 40059,
     "test/graph-mentions-perf.test.ts": 2151,
     "test/graph-mentions.test.ts": 2153,
     "test/graph-merge-cardinality.test.ts": 18949,

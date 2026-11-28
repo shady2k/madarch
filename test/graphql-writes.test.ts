@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { reconcileDisputes } from '../src/graph/disputes.js';
+import { readKindAssertions } from '../src/graph/records.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
@@ -74,6 +75,7 @@ value-types:
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.repository.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.repository.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/doc.term.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-doc.term.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.snapshot.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.snapshot.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.note.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.note.yaml'), 'utf8').replace('title: label', `title: label
 naming:
   label: label
@@ -191,6 +193,26 @@ describe('the agent writes the graph', () => {
       { path: '/payload/a~0~1/0', start: 15, end: 27, candidates },
     ]);
     expect(new Set(candidates.map(candidate => candidate.uid)).size).toBe(4);
+  });
+
+  test('an immutable content field holding a literal answer carries only the neighbouring authored hint', async () => {
+    const evidence = [{ target: { kind: 'system.content-snapshot', key: { digest: sha256Hex(Buffer.from('The fixture conversation and source bytes.\nSecond source line.\nThird source line.')) } }, locator: { path: 'conversation.txt' } }];
+    const neighbour = await putEntityAssertion(owner, agent, { kind: 'doc.term', values: { title: 'Hint neighbour' }, evidence });
+    if (neighbour.uid === undefined) throw new Error(`${import.meta.path}:186: written fixture entity has no uid`);
+    // The snapshot's content is the payload whose digest keys it, and it names the neighbour in plain words too: a hint
+    // built before the exclusion would answer with that occurrence, and a scan that reads it could refuse the write.
+    const content = `A literal [[uid:<lowercase hyphenated UUID>]] example, and the Hint neighbour again.`;
+    const answer = await putEntityAssertion(owner, agent, {
+      kind: 'demo.snapshot', key: { digest: sha256Hex(Buffer.from(content)) }, values: { title: 'A literal example', content, note: 'the Hint neighbour stated here' }, evidence,
+    });
+    // The authored field keeps its hint, and the excluded content field offers none: only authored prose suggests names.
+    expect(answer.hints?.filter(hint => hint.path === '/content')).toEqual([]);
+    const authored = answer.hints?.filter(hint => hint.path === '/note') ?? [];
+    expect(authored).toHaveLength(1);
+    expect(authored[0]!.candidates.map(candidate => candidate.uid)).toEqual([neighbour.uid]);
+    // The content the write stored is the payload the digest keys, byte for byte.
+    const snapshot = await owner.run(tx => readKindAssertions(tx, 'vertex', 'demo.snapshot', ['content'], { contract }));
+    expect(snapshot.map(record => record.values['content'])).toEqual([content]);
   });
 
   test('put_entity states a term with conversation evidence, read back over graph_query', async () => {

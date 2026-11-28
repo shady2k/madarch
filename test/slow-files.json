@@ -296,6 +296,16 @@
       "exit": "Run this file successfully in the blocking suite after an independent single-file measurement at or below 30 seconds, then remove this entry. Reversible coordinator decision for ALX-1149; do not change the threshold or weaken confinement."
     },
     {
+      "path": "test/graph-mentions-fill.test.ts",
+      "seconds": 40.059,
+      "reason": "green-slow",
+      "result": "green",
+      "owner": "madarch-47vw.9",
+      "defect": "The mention boundary after a fill is only observable through a real confined plugins-only fill: on box alx2082-review-fix (agent-linux-01, 2 vCPU, 4 GiB, one file inside scripts/plugin-sandbox-cgroup.sh's delegated cgroup) this one case ran 36.5 s and the whole file 40.059 s green on the reviewed tree — the disk turns read a two-file repository and publish their blobs, and the db-schema turn then reads those published files and states their table.",
+      "replacement": "The cost is the 0039 fill's own per-unit bookkeeping — the disk units, the blob writes and the db-schema turn — not this fixture's setup, and a case cannot shorten it without weakening what it proves: the downstream stage has to run after the document with the literal example is published.",
+      "exit": "Remove this entry only after a green complete-file runner measurement of test/graph-mentions-fill.test.ts at or below 30 seconds, confirmed on a fresh run."
+    },
+    {
       "path": "test/graph-records.test.ts",
       "seconds": 277.8,
       "reason": "red-defect",
