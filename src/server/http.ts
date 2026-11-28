@@ -592,14 +592,6 @@ const notServed = (message: string): Response => Response.json({ message }, { st
 }
 
 /**
- * Starts the fill role as a child of this process (madarch-8bdc.9): `madarch --role fill --home <home>`, at nice 10, with
- * its output on this process's error stream. It ends when the api process ends, and `stop()` ends it first.
- *
- * The role is supervised for its whole life (madarch-47vw.7): a role that ends while this server still serves left the
- * home's fills to nobody — the press waited and nothing claimed it — so the server starts another in its place, with the
- * same command, isolation and priority, and says so on its error stream.
- */
-/**
  * How long a server's stop gives its fill role before killing it: a role giving its stores up stops a store's server in
  * about 200-300 ms here, and one inside a store's synchronous start cannot stop at all until that returns (measured: a
  * daemon's stop waited its whole two-second wait on one; `madarch init`'s case ran 5 857 ms in CI).
@@ -615,19 +607,69 @@ const FILL_HEALTHY_MS = 30_000;
 /** The wait before a fill role's replacement: 1 s, 2 s, and 5 s for every exit in a row after that (madarch-47vw.7). */
 const FILL_RESTART_MS = [1_000, 2_000, 5_000] as const;
 
+/**
+ * The child a server's fill role starts, as its supervision reads it: a test stands one in for a process, so the ladder,
+ * the healthy-uptime reset and the stop's deadline are checked without waiting them (madarch-47vw.7).
+ */
+export interface FillRoleChild {
+  readonly pid: number;
+  readonly exited: Promise<unknown>;
+  readonly exitCode: number | null;
+  readonly signalCode: string | null;
+  kill(signal?: NodeJS.Signals | number): void;
+}
+
+/**
+ * The clock and timers a fill role's supervision reads: a test moves the moment and runs the waits itself, and the
+ * production server reads the machine's own (madarch-47vw.7).
+ */
+export interface FillRoleTiming {
+  readonly now: () => number;
+  readonly schedule: (run: () => void, waitMs: number) => unknown;
+  readonly cancel: (scheduled: unknown) => void;
+}
+
+/** The machine's clock and timers: what a serving process's supervision reads. */
+const FILL_ROLE_CLOCK: FillRoleTiming = {
+  now: () => Date.now(),
+  schedule: (run, waitMs) => setTimeout(run, waitMs),
+  cancel: (scheduled) => { clearTimeout(scheduled as ReturnType<typeof setTimeout>); },
+};
+
+/** What the supervision starts and says: a serving process passes its own binary, a test a stand-in process. */
+export interface FillRoleSupervision {
+  /** Starts one role and answers its child; a machine that cannot start it throws synchronously. */
+  readonly start: () => FillRoleChild;
+  /** Says an exit, a wait and a refused start on the server's error stream. */
+  readonly log: (line: string) => void;
+  /** The clock the ladder reads; the machine's own when it is left out. */
+  readonly timing?: FillRoleTiming;
+}
+
 /** The role this server started and watches, and when it started: a role that ran long enough had a healthy run. */
 interface FillRole {
-  readonly child: ReturnType<typeof Bun.spawn>;
+  readonly child: FillRoleChild;
   readonly startedAt: number;
 }
 
-function startFillRole(options: { readonly home: string; readonly root: string; readonly log: (line: string) => void }): { stop: () => Promise<void> } | undefined {
+/**
+ * Supervises one fill role for its whole life (madarch-47vw.7): an exit while the server still serves is said with its
+ * code, its uptime and the wait before the next role, another role starts with the same command, isolation and priority
+ * after 1 s, 2 s and 5 s for each exit in a row, a role that ran 30 s returns the ladder to 1 s, a start the machine
+ * refuses is said and tried again on the same ladder, and `stop()` cancels the wait for a replacement and ends the role
+ * it has, so an exit racing the stop starts nothing.
+ *
+ * Answers undefined when the role cannot be started at all: a machine that cannot start the binary still serves, and a
+ * press then waits for a fill process a person starts.
+ */
+export function superviseFillRole(options: FillRoleSupervision): { stop: () => Promise<void> } | undefined {
+  const timing = options.timing ?? FILL_ROLE_CLOCK;
   /** The role now running, so an exit of one a newer role replaced changes nothing. */
   let running: FillRole | undefined;
   /** How many exits in a row wait for a replacement: a healthy run sets it back to the shortest wait. */
   let ended = 0;
   /** The wait for the next role, while one is pending: `stop()` cancels it and nothing follows. */
-  let pending: ReturnType<typeof setTimeout> | undefined;
+  let pending: unknown;
   /** Whether this server is stopping: a role that ends then is the one the stop means to end. */
   let stopping = false;
 
@@ -641,14 +683,10 @@ function startFillRole(options: { readonly home: string; readonly root: string; 
 
   /** Starts the role, and watches it: an exit while the server serves starts another in its place. */
   const start = (): void => {
-    const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
-    // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: startupChildEnv({ ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) }) }));
-    try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
-    const role: FillRole = { child, startedAt: Date.now() };
+    const role: FillRole = { child: options.start(), startedAt: timing.now() };
     running = role;
     const gone = (): void => { exited(role); };
-    child.exited.then(gone, gone);
+    role.child.exited.then(gone, gone);
   };
 
   /** A role ended: says so, and unless this server is stopping, starts another after the wait its exit earned. */
@@ -657,7 +695,7 @@ function startFillRole(options: { readonly home: string; readonly root: string; 
     running = undefined;
     // The stop ends the role it means to and leaves no replacement behind, so the exit it raced is not news.
     if (stopping) return;
-    const ran = Date.now() - role.startedAt;
+    const ran = timing.now() - role.startedAt;
     const wait = waitFor(ran);
     const how = role.child.exitCode !== null ? `with code ${String(role.child.exitCode)}` : role.child.signalCode !== null ? `on signal ${role.child.signalCode}` : 'without a code';
     options.log(`the fill role (pid ${String(role.child.pid)}) ended by itself ${how} after ${String(ran)} ms; another starts in ${String(wait)} ms`);
@@ -666,7 +704,7 @@ function startFillRole(options: { readonly home: string; readonly root: string; 
 
   /** Waits `wait` ms, then starts a role; a start the machine refuses is said and tried again on the same ladder. */
   const startAfter = (wait: number): void => {
-    pending = setTimeout(() => {
+    pending = timing.schedule(() => {
       pending = undefined;
       if (stopping) return;
       try { start(); } catch (error) {
@@ -686,7 +724,7 @@ function startFillRole(options: { readonly home: string; readonly root: string; 
       // A server that stops ends its role and leaves none behind: a replacement it waits for is cancelled, and an exit
       // racing this stop starts nothing (madarch-47vw.7).
       stopping = true;
-      if (pending !== undefined) { clearTimeout(pending); pending = undefined; }
+      if (pending !== undefined) { timing.cancel(pending); pending = undefined; }
       const role = running;
       if (role === undefined) return;
       // The role is asked to stop and given a moment to give its stores up (madarch-8bdc.12), then killed: a role inside
@@ -699,6 +737,24 @@ function startFillRole(options: { readonly home: string; readonly root: string; 
       if (!stopped) { try { role.child.kill('SIGKILL'); } catch { /* already gone */ } }
     },
   };
+}
+
+/**
+ * Starts the fill role as a child of this process (madarch-8bdc.9): `madarch --role fill --home <home>`, at nice 10, with
+ * its output on this process's error stream, under `superviseFillRole` (madarch-47vw.7). It ends when the api process
+ * ends, and `stop()` ends it first.
+ */
+function startFillRole(options: { readonly home: string; readonly root: string; readonly log: (line: string) => void }): { stop: () => Promise<void> } | undefined {
+  return superviseFillRole({
+    log: options.log,
+    start: () => {
+      const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
+      // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
+      const child = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: startupChildEnv({ ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) }) }));
+      try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
+      return child;
+    },
+  });
 }
 
 export interface ServerHandler {

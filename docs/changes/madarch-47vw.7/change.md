@@ -66,13 +66,21 @@ with no end at all. Two causes, one part of the patch each.
   run still holds the chain records its own end, so the pressing page answers rather than
   waiting behind a run that never started.
 - **A server supervises its fill role instead of starting it once.** `startFillRole`
-  (`src/server/http.ts`) watches the `--role fill` child it started: a role that ends while
-  the server still serves is logged with its exit and started again, with the same command,
-  isolation and nice level, after 1 s, 2 s, and 5 s for each further exit in a row, and the
-  ladder returns to 1 s after a role that ran 30 s. A server's stop cancels a replacement it
-  is waiting for and ends the role it has, so an exit racing the stop leaves no role behind.
-  This is the daemon half of the same defect: a dead worker claimed nothing, so the queue's
-  retry stood unclaimed and the press waited until the daemon was restarted by hand.
+  (`src/server/http.ts`) starts the `--role fill` child and `superviseFillRole` watches it for
+  its whole life: a role that ends while the server still serves is logged with its exit and
+  started again, with the same command, isolation and nice level, after 1 s, 2 s, and 5 s for
+  each further exit in a row, and the ladder returns to 1 s after a role that ran 30 s. A
+  start the machine refuses is said and tried again on the same ladder. A server's stop
+  cancels a replacement it is waiting for and ends the role it has, so an exit racing the
+  stop leaves no role behind. This is the daemon half of the same defect: a dead worker
+  claimed nothing, so the queue's retry stood unclaimed and the press waited until the
+  daemon was restarted by hand.
+  The supervision reads its clock, its waits and its start through `FillRoleSupervision`,
+  so `test/fill-role-supervision.test.ts` checks every rung, the healthy-uptime reset, a
+  refused start and both stop cases in milliseconds, and checks the production wiring — a
+  real child ended, a distinct replacement, a stop with a wait pending and a stop racing an
+  exit — on a surviving host. `test/fill-role-service.test.ts` is the slow-file entry that
+  pays one real confined fill through the replacement and its clean stop.
 
 ## Rationale
 
