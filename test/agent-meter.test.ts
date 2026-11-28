@@ -9,18 +9,18 @@
  * program of the test's own that speaks ACP over stdio and reports the usage the script tells it to.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { KIND_USAGE_RUNS, readKindUsage, recordAgentUsage, type AgentUsageRecord } from '../src/adapters/agent-usage.js';
+import { KIND_USAGE_RUNS, readAgentUsageRows, readKindUsage, recordAgentUsage, type AgentUsageRecord } from '../src/adapters/agent-usage.js';
 import { connectAcpAgent, type AcpConnection, type AcpSession } from '../src/fill/acp.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { SCHEMA_REVISION } from '../src/adapters/schemas/graph-definition.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { closeTrace, openTrace } from '../src/obs/trace.js';
-import { readTraceSpans, renderTraceReport, traceReportOf } from '../src/obs/trace-report.js';
+import { readTraceSpans, renderTraceReport, traceReportOf, TraceSpanReader, agentUsageOf, type AgentUsageReport } from '../src/obs/trace-report.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
@@ -44,6 +44,7 @@ function folder(): string {
 /** One scripted step, as the fake agent's `script` scenario reads it. */
 interface Step {
   readonly say?: string;
+  readonly thought?: string;
   readonly usage?: { readonly used?: number; readonly size?: number; readonly cost?: { readonly amount: number; readonly currency: string } };
   readonly end?: { readonly stopReason?: string; readonly usage?: unknown };
   readonly wait?: boolean;
@@ -66,6 +67,31 @@ async function sessionOf(script: { readonly steps?: readonly Step[]; readonly by
 /** The meter of one unit, saving nowhere unless a case names its store. */
 function meterOf(options: Partial<ConstructorParameters<typeof AgentMeter>[0]> = {}): AgentMeter {
   return new AgentMeter({ run: 'fill-test', unit: 'glossary:doc.term', plugin: 'glossary', pluginVersion: '1.0.0', kind: 'doc.term', ...options });
+}
+
+/** The tokens a turn's streamed text estimates, at four code points a token (owner's decision, 2026-11-15). */
+const estimatedTokens = (text: string): number => Math.ceil([...text].length / 4);
+
+/**
+ * The run's usage as the api role reads it while the fill works: its trace file, flushed as it grows (`TraceSpanReader`
+ * leaves an unterminated line for the next read). The wait is for the flush, not the machine: the answer must stand
+ * before the bound, whatever the box's speed.
+ */
+async function untilUsage(file: string, done: (usage: AgentUsageReport) => boolean, ms = 10_000): Promise<AgentUsageReport> {
+  const reader = new TraceSpanReader();
+  const start = Date.now();
+  let usage = agentUsageOf([]);
+  while (Date.now() - start < ms) {
+    usage = agentUsageOf(existsSync(file) ? reader.read(file) : []);
+    if (done(usage)) return usage;
+    await Bun.sleep(25);
+  }
+  return usage;
+}
+
+/** One `session/update` as the meter reads it from the connection: a text chunk of the turn. */
+function chunk(kind: 'message' | 'thought', text: string): import('../src/fill/acp.js').AcpUpdate {
+  return { kind, text, sessionUpdate: kind === 'message' ? 'agent_message_chunk' : 'agent_thought_chunk', at: new Date().toISOString(), raw: { text } };
 }
 
 const USAGE = { totalTokens: 1000, inputTokens: 800, outputTokens: 200 };
@@ -326,6 +352,133 @@ describe('the run\'s trace', () => {
     expect(report.agentUsage.cost).toEqual([{ currency: 'USD', amount: 0.5 }]);
     expect(report.agentUsage.lines[0]).toMatchObject({ kind: 'doc.term', field: 'definition', model: 'sonnet', plugin: 'glossary', stopped: { bound: 'cost', scope: 'plugin' } });
     expect(renderTraceReport(report)).toContain('Agent usage: 1 prompt turns, 0 tokens in, 0 out, 0 written to cache, 0 read from cache, 0 total, cost 0.5 USD');
+  });
+
+  test('a turn that reports no usage states its estimate in the span: the page shows the row\'s spend, not zero', async () => {
+    const where = folder();
+    const connection = await connectAcpAgent({ id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'no-usage'] }, { cwd: where });
+    connections.push(connection);
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: where });
+    const trace = openTrace({ store: where, runId: 'fill-unreported' });
+    const meter = meterOf({ run: 'fill-unreported' });
+    try {
+      await meter.runTurn(session, 'a turn that reports nothing', { field: 'definition', model: 'sonnet' });
+    } finally {
+      closeTrace(trace);
+    }
+    const [row] = meter.rows();
+    // The row keeps the estimate the stream charged, and the span states that same increment: the run page reads the
+    // spans, so a span of zeros would show a fill spending nothing while its row and the run's cap say it spent
+    // (madarch-rcyu: the owner's walk read 0 tokens while the agent worked).
+    expect(row?.reported).toBe(false);
+    expect(row?.totalTokens).toBeGreaterThan(0);
+    const spans = readTraceSpans(trace.file).filter((span) => span.name === 'agent.usage');
+    // The stream's charges are provisional spans of the turn that states them, and the turn's own span answers it: the
+    // reader counts the turn once, at the row's figure (madarch-rcyu, review ALX-2032).
+    expect(spans.filter((span) => span.attributes['agent.estimate'] === true).length).toBeGreaterThan(0);
+    const answered = spans.filter((span) => span.attributes['agent.estimate'] !== true);
+    expect(answered).toHaveLength(1);
+    expect(answered[0]?.attributes).toMatchObject({ 'agent.tokens.input': row!.inputTokens, 'agent.tokens.total': row!.totalTokens, 'agent.reported': false, 'agent.turns': 1 });
+    expect(traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage).toMatchObject({ inputTokens: row!.inputTokens, totalTokens: row!.totalTokens, turns: 1 });
+  });
+
+  test('a cost the adapter reports before the turn answers stays in the completed trace, stated once', async () => {
+    const where = folder();
+    const session = await sessionOf({
+      steps: [
+        // The order the owner's walk met: the adapter's cost arrives before the stream and the answer that settles the turn.
+        { usage: { used: 100, size: 200_000, cost: { amount: 0.5, currency: 'USD' } } },
+        { thought: 'x'.repeat(400) },
+        { end: { stopReason: 'end_turn', usage: { inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214 } } },
+      ],
+    });
+    const trace = openTrace({ store: where, runId: 'fill-cost-live' });
+    const meter = meterOf({ run: 'fill-cost-live' });
+    try {
+      await meter.runTurn(session, 'a turn that reports its cost before it answers', { field: 'definition', model: 'sonnet' });
+    } finally {
+      closeTrace(trace);
+    }
+    // The row keeps the charge the adapter reported, and the run's trace states that same charge once: the provisional
+    // span of the open turn describes its token charge only, and the span that answers it states the cost, so the report
+    // that replaces the provisional turn by its answer keeps the charge instead of dropping it (madarch-rcyu).
+    expect(meter.rows()[0]).toMatchObject({ cost: { amount: 0.5, currency: 'USD' }, turns: 1 });
+    const report = traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage;
+    expect(report).toMatchObject({ inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214, turns: 1 });
+    expect(report.cost).toEqual([{ currency: 'USD', amount: 0.5 }]);
+  });
+
+  test('a turn that is still open states its estimate in a provisional span, and its answer reconciles it exactly once', async () => {
+    const where = folder();
+    const budget = new AgentRunBudget({ tokens: 100_000 });
+    const trace = openTrace({ store: where, runId: 'fill-open' });
+    const meter = meterOf({ run: 'fill-open', budget });
+    try {
+      meter.beginTurn({ field: 'definition', model: 'sonnet' });
+      // 400 code points, four a token: the charge the stream makes before the turn answers.
+      meter.meterSessionUpdate(chunk('thought', 'x'.repeat(400)));
+      // The run page reads the trace: a turn that has not answered yet states what it already spent, and the run's cap
+      // holds exactly that figure — the review's finding was a page reading zero here.
+      const live = await untilUsage(trace.file, (usage) => usage.totalTokens > 0);
+      expect(live).toMatchObject({ inputTokens: 100, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 100, turns: 0 });
+      expect(budget.tokens).toBe(100);
+      const open = readTraceSpans(trace.file).filter((span) => span.name === 'agent.usage');
+      expect(open).toHaveLength(1);
+      expect(open[0]?.attributes).toMatchObject({ 'agent.estimate': true, 'agent.tokens.input': estimatedTokens('x'.repeat(400)), 'agent.tokens.total': 100, 'agent.turns': 0 });
+      // The turn answers with its own report: the estimate is taken back out of the row and the cap, and the report stands
+      // once — not the estimate plus the report.
+      await meter.endTurn({ usage: { inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214 } });
+      const settled = await untilUsage(trace.file, (usage) => usage.turns === 1);
+      expect(settled).toMatchObject({ inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214, turns: 1 });
+      // The cap counts input, output and cache writes, never the cache reads (owner's decision, 2026-11-15).
+      expect(budget.tokens).toBe(120 + 20 + 14);
+      expect(meter.spent()).toMatchObject({ inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214, tokens: 154 });
+    } finally {
+      closeTrace(trace);
+    }
+  });
+
+  test('a retried unit counts both attempts once in its row, the kind and the cap, and one trace per attempt', async () => {
+    const owner = await createTestDatabaseOwner();
+    owners.push(owner);
+    const budget = new AgentRunBudget({ tokens: 100_000 });
+    const save = async (rows: readonly AgentUsageRecord[]): Promise<void> => await recordAgentUsage(owner, rows);
+    const trace = openTrace({ store: folder(), runId: 'fill-retry' });
+    try {
+      // The first attempt streams its answer and is refused as invalid: it ends with the estimate the stream charged.
+      const first = meterOf({ run: 'fill-retry', budget, save });
+      first.beginTurn({ field: 'definition', model: 'sonnet' });
+      first.meterSessionUpdate(chunk('thought', 'x'.repeat(400)));
+      await first.endTurn({});
+      expect([...first.rows()].map((row) => [row.inputTokens, row.turns, row.reported])).toEqual([[100, 1, false]]);
+      expect(budget.tokens).toBe(100);
+      // The retry is a meter of its own, and it adopts what the unit's row already holds: one row is the unit's spend.
+      const adopted = await readAgentUsageRows(owner, 'fill-retry', 'glossary:doc.term');
+      expect(adopted).toMatchObject([{ inputTokens: 100, outputTokens: 0, totalTokens: 100, turns: 1, reported: false }]);
+      const second = meterOf({ run: 'fill-retry', budget, save, adopted });
+      second.beginTurn({ field: 'definition', model: 'sonnet' });
+      second.meterSessionUpdate(chunk('thought', 'x'.repeat(400)));
+      await second.endTurn({ usage: { inputTokens: 120, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 214 } });
+      expect([...second.rows()].map((row) => [row.inputTokens, row.outputTokens, row.cachedWriteTokens, row.cachedReadTokens, row.totalTokens, row.turns])).toEqual([[220, 20, 14, 60, 314, 2]]);
+      // Published again — a retry republishing the same snapshot — the row stands at the unit's whole spend, never twice it.
+      await second.flush();
+      const kind = await readKindUsage(owner, 'doc.term');
+      expect(kind.runs).toHaveLength(1);
+      expect(kind.runs[0]?.rows).toHaveLength(1);
+      expect(kind.runs[0]?.rows[0]).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, turns: 2 });
+      expect(kind.total).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, runs: 1 });
+      // The run's cap counts both attempts' capped tokens once — input, output and cache writes, never the cache reads.
+      expect(budget.tokens).toBe(100 + 154);
+    } finally {
+      // The trace batches its appends (`src/obs/trace.ts`, `TRACE_FLUSH_MS`), so the completed trace is read after the
+      // run's own close has written what the buffer still holds: a read before the close sees only the batch whose timer
+      // already fired, which is how this case read the first attempt alone in CI (madarch-rcyu, run 46097904262).
+      closeTrace(trace);
+    }
+    // The trace states the same figure as the row, in the two attempts' own turns.
+    const usage = traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage;
+    expect(usage).toMatchObject({ inputTokens: 220, outputTokens: 20, cachedWriteTokens: 14, cachedReadTokens: 60, totalTokens: 314, turns: 2 });
   });
 
   test('a turn\'s tokens are the increment the trace adds, never the run\'s cumulative report twice', async () => {

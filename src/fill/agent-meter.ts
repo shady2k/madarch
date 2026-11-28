@@ -38,7 +38,19 @@
  *
  * The spend is written through `src/adapters/agent-usage.ts` after every turn (a crash costs the turn in flight, never
  * the run), and each turn's increment is one `agent.usage` span of the run's trace, so `madarch trace` and the run page
- * state what the model calls cost.
+ * state what the model calls cost. The increment is what the turn added to the row: a turn that reports no usage adds the
+ * estimate the stream charged, and its span states that estimate, so the page, the row and the run's cap keep one figure.
+ *
+ * A turn is also visible while it is open (madarch-rcyu, review ALX-2032): the stream's estimate is charged chunk by
+ * chunk, and every charge is a provisional `agent.usage` span (`agent.estimate: true`, no turn counted) of the turn its
+ * `agent.turn` names. The run page reads the trace, so the figure it states is the figure the run's cap already holds,
+ * before the turn answers. The turn's own span — the answer's increment or the estimate that stands for a turn that
+ * reported none — answers that turn, and the provisional spans of a answered turn stop being counted: the reader in
+ * `src/obs/trace-report.ts` counts a turn once, so the estimate is reconciled by the report exactly once.
+ *
+ * A retried unit spends in more than one attempt, and each attempt is a meter of its own: the meter adopts the rows its
+ * unit already has in the store (`readAgentUsageRows`), so one row states the unit's whole spend and the page, the row,
+ * the run's cap and the kind's totals keep one figure across attempts.
  */
 import type { AcpPromptResult, AcpUpdate, AcpUsageReport } from './acp.js';
 import type { AgentUsageAmount, AgentUsageRecord } from '../adapters/agent-usage.js';
@@ -48,6 +60,9 @@ import { withSpanSync } from '../obs/trace.js';
 
 /** The site every message and span of this module names. */
 const WHERE = 'src/fill/agent-meter.ts';
+
+/** The meters this process made, so a turn's spans are told apart across attempts and units. */
+let meterSeq = 0;
 
 /** One bound crossed, as the caller ends the unit with it. */
 export interface AgentUsageStop {
@@ -196,6 +211,11 @@ export interface AgentMeterOptions {
   readonly budget?: AgentRunBudget;
   /** Where the rows go after every turn; `src/adapters/agent-usage.ts`'s `recordAgentUsage` is what a fill passes. */
   readonly save?: (rows: readonly AgentUsageRecord[]) => Promise<void> | void;
+  /**
+   * What earlier attempts of this unit already spent, as the store holds them (`readAgentUsageRows`): a retried unit's
+   * meter starts from them, so its rows state the unit's whole spend and its save replaces, never adds.
+   */
+  readonly adopted?: readonly AgentUsageRecord[];
 }
 
 /** The fields one prompt turn is metered into. */
@@ -227,6 +247,9 @@ export class AgentMeter {
   /** The tokens this turn's streamed text estimates so far, and how much of that estimate the rows and the budget hold. */
   #estimate = 0;
   #estimated = 0;
+  /** Which meter this is, and which turn it is on: the trace's turns are told apart across attempts and units. */
+  readonly #id = `${String(process.pid)}.${String(++meterSeq)}`;
+  #turns = 0;
 
   constructor(options: AgentMeterOptions) {
     if (options.run.trim() === '' || options.unit.trim() === '' || options.plugin.trim() === '' || options.kind.trim() === '') {
@@ -234,6 +257,7 @@ export class AgentMeter {
     }
     this.#options = options;
     this.#turn = { kind: options.kind, field: '', model: null };
+    for (const earlier of options.adopted ?? []) this.#adopt(earlier);
   }
 
   /** A new ACP session: its cumulative reports start from its own zero. */
@@ -243,6 +267,7 @@ export class AgentMeter {
 
   /** The turn about to be asked: what it fills and the model it runs on. */
   beginTurn(options: MeterTurnOptions = {}): void {
+    this.#turns += 1;
     this.#turn = {
       kind: options.kind ?? this.#options.kind,
       field: options.field ?? '',
@@ -270,7 +295,11 @@ export class AgentMeter {
       const delta = this.#estimate - this.#estimated;
       if (delta > 0) {
         this.#estimated += delta;
-        this.#add({ input: delta, output: 0, cacheWrite: 0, cacheRead: 0, total: delta }, [], true);
+        const charged = { input: delta, output: 0, cacheWrite: 0, cacheRead: 0, total: delta };
+        this.#add(charged, [], true);
+        // The charge is stated where the page reads it, as it is made: a provisional span of this turn, which its own
+        // span answers (madarch-rcyu). A run page then states the tokens the run's cap already holds, not zero.
+        this.#writeSpan(charged, true);
       }
     }
     if (update.kind === 'usage' && update.cost !== undefined) {
@@ -321,7 +350,13 @@ export class AgentMeter {
         this.#add({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal }, []);
       }
     }
-    this.#writeSpan({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal });
+    // The span states what this turn added to the row, and a turn that reported no usage added the estimate the stream
+    // charged: the estimate stays in the row, and a span that left it out would make the run page state a spend below
+    // the row's and the cap's — zero for an adapter that reports no usage at all, while the run spends (madarch-rcyu).
+    const estimateStands = usage === undefined && this.#estimated > 0;
+    this.#writeSpan(estimateStands
+      ? { input: this.#estimated, output: 0, cacheWrite: 0, cacheRead: 0, total: this.#estimated }
+      : { input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal }, false);
     this.#estimate = 0;
     this.#estimated = 0;
     await this.#save();
@@ -554,11 +589,16 @@ export class AgentMeter {
     };
   }
 
-  /** One span of the run's trace for the turn's increment: what this turn's model calls cost. */
-  #writeSpan(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }): void {
+  /**
+   * One span of the run's trace for the turn's increment: what this turn's model calls cost. A provisional span
+   * (`estimated`) states a charge of a turn that has not answered, and never the bounds the turn's end names.
+   */
+  #writeSpan(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }, estimated: boolean): void {
     const row = this.#row();
     const attributes: Record<string, string | number | boolean> = {
       'agent.run': this.#options.run,
+      'agent.turn': `${this.#id}.${String(this.#turns)}`,
+      ...(estimated ? { 'agent.estimate': true } : {}),
       'agent.unit': this.#options.unit,
       'agent.plugin': this.#options.plugin,
       'agent.plugin.version': this.#options.pluginVersion,
@@ -571,7 +611,7 @@ export class AgentMeter {
       'agent.tokens.cache_read': tokens.cacheRead,
       'agent.tokens.total': tokens.total,
       'agent.tokens.capped': cappedTokensOf({ inputTokens: tokens.input, outputTokens: tokens.output, cachedWriteTokens: tokens.cacheWrite }),
-      'agent.turns': 1,
+      'agent.turns': estimated ? 0 : 1,
       'agent.reported': row.reported,
       'agent.row.tokens.input': row.inputTokens,
       'agent.row.tokens.output': row.outputTokens,
@@ -579,17 +619,38 @@ export class AgentMeter {
       'agent.row.tokens.cache_read': row.cachedReadTokens,
       'agent.row.tokens': cappedTokensOf(row),
     };
-    for (const amount of this.#incrementCosts(row)) attributes[`agent.cost.${amount.currency}`] = amount.amount;
+    // A provisional span states the turn's token charge and nothing else: the cost this turn added is stated once, by the
+    // span that answers it. Advancing the cost baseline here would leave the settled span with no cost to state, and the
+    // report, which replaces a provisional turn by its answer, would drop the whole charge (madarch-rcyu: a turn whose
+    // `usage_update` reported USD 0.50 kept that charge in the row and in the provisional span, while the completed run's
+    // trace stated no cost at all).
+    if (!estimated) for (const amount of this.#incrementCosts(row)) attributes[`agent.cost.${amount.currency}`] = amount.amount;
     if (this.#context !== undefined) {
       attributes['agent.context.used'] = this.#context.used;
       attributes['agent.context.size'] = this.#context.size;
     }
-    if (this.#stop !== undefined) {
+    if (this.#stop !== undefined && !estimated) {
       attributes['agent.bound.stop'] = this.#stop.bound;
       attributes['agent.bound.scope'] = this.#stop.scope;
       attributes['agent.bound.limit'] = this.#stop.limit;
     }
     withSpanSync('agent.usage', attributes, () => undefined);
+  }
+
+  /**
+   * Starts this meter from a row an earlier attempt of its unit already spent: the row is the unit's whole spend, so the
+   * attempt's own save replaces it, and its first span states only what this attempt added.
+   */
+  #adopt(earlier: AgentUsageRecord): void {
+    const made: MeterRow = {
+      unit: this.#options.unit, kind: earlier.kind, field: earlier.field, model: earlier.model,
+      inputTokens: earlier.inputTokens, outputTokens: earlier.outputTokens, cachedWriteTokens: earlier.cachedWriteTokens,
+      cachedReadTokens: earlier.cachedReadTokens, totalTokens: earlier.totalTokens,
+      cost: new Map(earlier.cost === null ? [] : [[earlier.cost.currency, earlier.cost.amount]]),
+      turns: earlier.turns, reported: earlier.reported, stopped: earlier.stopped,
+    };
+    this.#rows.set(`${made.kind}\u0000${made.field}\u0000${made.model ?? '\u0001'}`, made);
+    this.#lastCostByRow.set(made, new Map(made.cost));
   }
 
   /** The cost this turn added, per currency: the row's total less what the row held before this turn. */

@@ -545,10 +545,11 @@ export class ReadContext {
     if(!this.hasMerges)return id;
     return `graph_merge_target(${id},${this.contexts[0]},'${this.validAt}'::timestamptz,'${this.recordedAt}'::timestamptz)`;
   }
-  private active(sort: 'vertex' | 'edge', alias: string): string {
+  private active(sort: 'vertex' | 'edge', alias: string, kinds?: ReadonlySet<string>): string {
     const contract = withAssertionContract(withManifestContract(graphContractOf(this.manifest)));
     const structural = contract.edge.filter((kind) => kind.capability === 'system').map((kind) => kind.name);
-    return (sort==='vertex'&&this.hasMerges?`${this.canonicalNode(alias+'.id')}=${alias}.id AND `:'')+activeExistenceSql(sort, alias, contract[sort].map((kind) => kind.name), { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds, projectMergedSubjects: this.hasMerges }, sort === 'edge' ? structural : []);
+    const names = contract[sort].map((kind) => kind.name).filter((name) => kinds === undefined || kinds.has(name));
+    return (sort==='vertex'&&this.hasMerges?`${this.canonicalNode(alias+'.id')}=${alias}.id AND `:'')+activeExistenceSql(sort, alias, names, { validAt: this.validAt, recordedAt: this.recordedAt, contexts: this.contexts, contextRecordedThrough: this.contextRecordedThrough, resolvedAssertionIds: this.resolutionAssertionIds, projectMergedSubjects: this.hasMerges }, sort === 'edge' ? structural : []);
   }
 
   private selection(rows: readonly StoredAssertion[]) {
@@ -1309,38 +1310,52 @@ export class ReadContext {
   /** The entities whose label or text holds the words asked: their node, their kind, the matched value and how well. */
   private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined, limit: number, grouped = false): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number; total: number }[]> {
     if (text.trim() === '') return [];
+    const kinds = this.published.kinds.filter(({ name }) =>
+      wanted === undefined || wanted.has(name) || wanted.has(kindTypeNameOf(name)));
+    if (kinds.length === 0) return [];
+    // An unfilled product declares many kinds without vertices. Exclude them before generating field expressions.
+    // The probe checks stored identities. The search below still applies the read snapshot's visibility.
+    const { rows } = await this.tx.query<{ name: string }>(
+      `SELECT en.name
+       FROM entity en
+       WHERE en.name = ANY($1::text[]) AND EXISTS (SELECT 1 FROM node WHERE entity_id = en.id)`,
+      [kinds.map(({ name }) => name)],
+    );
+    const present = new Set(rows.map(({ name }) => name));
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
     const prefix = sql.param(`${text}%`, '::text');
     const parts: string[] = [];
-    const names: string[] = [];
-    for (const kind of this.published.kinds) {
-      if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(kindTypeNameOf(kind.name))) continue;
+    const names = new Set<string>();
+    for (const kind of kinds) {
+      if (!present.has(kind.name)) continue;
       // Immutable content is evidence, not a search index; the declaration names its content field.
       const contentField = this.manifest.kinds.get(kind.name)?.evidence?.contentField;
       const searched = kind.fields.filter((field) => field.type === 'text' && field.name !== contentField);
       if (searched.length === 0) continue;
-      names.push(kind.name);
+      names.add(kind.name);
       const kindParam = sql.param(kind.name, '::text');
       const title = this.manifest.kinds.get(kind.name)?.title;
       for (const field of searched) {
         const expr = this.fieldExpr(kind, field, 'n', sql, lang);
         // A label match ranks above a text match: the entity whose own name holds the words is what a reader means.
         const rank = field.name === title ? `CASE WHEN (${expr}) ILIKE ${prefix} THEN 0 ELSE 1 END` : '3';
-        parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, ${kindParam} AS kind,
+        // Filtering the CTE row by kind lets PostgreSQL skip this field's subquery for other kinds' vertices.
+        parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, n.search_kind AS entity, ${kindParam} AS kind,
             (${expr})::text AS value, ${rank} AS rank
-          FROM active_vertices n JOIN entity en ON en.id = n.entity_id
-          WHERE en.name = ${kindParam} AND (${expr})::text ILIKE ${pattern}`);
+          FROM active_vertices n
+          WHERE n.search_kind = ${kindParam} AND (${expr})::text ILIKE ${pattern}`);
       }
     }
     if (parts.length === 0) return [];
-    const kindNames = sql.param(names, '::text[]');
+    const kindNames = sql.param([...names], '::text[]');
     const bound = sql.param(limit, '::int');
     const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      // Existence assertions and merges stay within their kind, so only the selected kinds can affect this read.
       const statementSql = `WITH hits AS (
          WITH active_vertices AS MATERIALIZED (
-           SELECT n.* FROM node n JOIN entity en ON en.id = n.entity_id
-           WHERE en.name = ANY(${kindNames}) AND ${this.active('vertex', 'n')}
+           SELECT n.*, en.name AS search_kind FROM node n JOIN entity en ON en.id = n.entity_id
+           WHERE en.name = ANY(${kindNames}) AND ${this.active('vertex', 'n', names)}
          )
          ${parts.join(' UNION ALL ')}
        ),

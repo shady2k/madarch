@@ -3,6 +3,7 @@
  * own, and a choice that stays where the reader left it.
  */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 import { adoptProductLanguage, i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
@@ -16,6 +17,24 @@ function leafKeys(value: unknown, prefix = ''): string[] {
 describe('the wiki\u2019s words', () => {
   test('English and Russian catalogues hold the same message keys', () => {
     expect(leafKeys(en).sort()).toEqual(leafKeys(ru).sort());
+  });
+
+  test('pagination buttons have localized disabled reasons in both languages', () => {
+    const keysByLanguage = { en: new Set(leafKeys(en)), ru: new Set(leafKeys(ru)) };
+    const missing: string[] = [];
+    for (const component of ['relations', 'table', 'treemap']) {
+      const path = `components/${component}.tsx`;
+      const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+      const keys = [...source.matchAll(/\bdisabledReason=\{([^}]+)\}/g)]
+        .flatMap(([, expression]) => [...expression!.matchAll(/\bt\(\s*['"]([^'"]+)['"]\s*\)/g)].map(([, key]) => key!));
+      expect(keys.length).toBeGreaterThan(0);
+      for (const [language, translated] of Object.entries(keysByLanguage)) {
+        for (const key of new Set(keys)) {
+          if (!translated.has(key)) missing.push(`${path}: ${language} is missing ${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   test('every problem sentence the engine can send has its words in both languages', () => {

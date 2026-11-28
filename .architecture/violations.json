@@ -1512,11 +1512,6 @@
   {
     "rule": "no-regex",
     "file": "src/product/entity-cli.ts",
-    "symbol": "/^\\/.+:\\d+:/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/product/entity-cli.ts",
     "symbol": "/^field \"([^\"]+)\"/"
   },
   {
