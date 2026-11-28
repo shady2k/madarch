@@ -15,7 +15,7 @@ import { newUid } from '../src/graph/uid.js';
 import { readKindAssertions } from '../src/graph/records.js';
 import { readFillRunDetail } from '../src/knowledge/fill-runs.js';
 import { failRequestedFill } from '../src/knowledge/fill-run.js';
-import { writeOrchestration, readFillEnd, writeFillEnd } from '../src/graph/fill-orchestration.js';
+import { appendProgress, readProgress, writeOrchestration, readFillEnd, writeFillEnd } from '../src/graph/fill-orchestration.js';
 import { recordUnitPlanIn } from '../src/graph/fill-orchestration.js';
 import type { KindDecl, PluginDecl, KindsManifest } from '../src/product/manifest/kinds.js';
 import { pluginsFillingKind } from '../src/fill/plugin-turns.js';
@@ -420,4 +420,21 @@ test('a vertex two producers asserted is one entity of the run, and its producer
       totals: [{ kind: 'code.file', created: 1, updated: 1 }],
     });
   } finally { await counted.close(); }
+});
+
+/**
+ * A run's journal is read from the events the run stored (madarch-64o5.200, ALX-2065): the failure an older engine wrote
+ * carried the file that engine was bundled into, and the run page draws its cause from this read. The read shows the
+ * words a person can act on; the store keeps the event as it was written, which is the evidence a developer reads.
+ */
+test('a saved run shows its journal failure and drops the file its engine was bundled into', async () => {
+  const bundle = '/$bunfs/root/madarch-linux-x64';
+  // The event as the packaged engine writes it: the run's own failure, with the file the engine was bundled into after
+  // the source path that raised it.
+  const summary = `the run failed: src/plugin/agent.ts:1: ${bundle}: the agent answer is no JSON`;
+  await createRun(owner, { runId: 'packaged-journal', product: 'shop', at: 12_000 });
+  await appendProgress(owner, { runId: 'packaged-journal', at: 12_001, stage: '', unitId: '', generation: null, kind: 'run-failed', summary });
+  const detail = await readFillRunDetail(owner, 'packaged-journal', { now: 13_000, product: '/work/product' });
+  expect(detail?.events.map((event) => event.summary)).toContain('the run failed: src/plugin/agent.ts:1: the agent answer is no JSON');
+  expect((await readProgress(owner, 'packaged-journal')).map((event) => event.summary)).toContain(summary);
 });

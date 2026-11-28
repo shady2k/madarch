@@ -95,7 +95,9 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
  */
 function logsReaderOf(descriptor: ReadDescriptor): ((asked: Readonly<Record<string, unknown>>) => unknown) | undefined {
   if (descriptor.store === undefined || descriptor.knowledgeRoot === undefined) return undefined;
-  const paths = { store: descriptor.store, knowledgeRoot: descriptor.knowledgeRoot };
+  // The product's own folder travels with the read: a location under it is the product's, even where the product stands
+  // inside the engine checkout's own src or scripts (madarch-64o5.200).
+  const paths = { store: descriptor.store, knowledgeRoot: descriptor.knowledgeRoot, product: descriptor.folder };
   return (asked) => {
     const sources = Array.isArray(asked['sources']) ? asked['sources'] : [];
     for (const name of sources) {
