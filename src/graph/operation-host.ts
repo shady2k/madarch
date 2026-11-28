@@ -14,7 +14,12 @@ import { newUid } from './uid.js';
 import { reconcileDisputes } from './disputes.js';
 import type { ClaimedJob, EnqueueRequest, QueueService } from '../fill/queue.js';
 
-const WHERE = new URL(import.meta.url).pathname;
+/**
+ * Where this module's own failures stand: its source path, never the path of the file the engine was
+ * bundled into (madarch-64o5.200). `import.meta.url` is `/$bunfs/root/<binary>` in a packaged binary,
+ * and that location reaches a reader as the head of a run's failure detail.
+ */
+const WHERE = 'src/graph/operation-host.ts';
 
 /** A fenced operation cannot write after its queue attempt loses authority. */
 export class AttemptStaleError extends Error {}

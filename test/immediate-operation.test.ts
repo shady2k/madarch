@@ -50,7 +50,11 @@ test('immediate operation receipt, rollback, preconditions, run state and atomic
   await expect(host.execute({key:'stale-edge',request:{},preconditions:[{uid:relation.uid,recordedSequence:'0'}]},async()=>null)).rejects.toThrow('REVISION_CONFLICT');
   await expect(host.execute({key:'missing-precondition',request:{},preconditions:[{uid:newUid(),recordedSequence:'0'}]},async()=>null)).rejects.toThrow('TARGET_MISSING');
   await owner.transaction('write',tx=>changeOperationRunState(tx,EMPTY_CONTRACT,binding,runUid,'paused'));
-  await expect(host.execute({key:'paused',request:{}},async()=>null)).rejects.toThrow('RUN_NOT_WRITABLE');
+  // A refusal names this module's source path and line, never the file the engine is bundled into (madarch-64o5.200):
+  // this message reaches the run's failure detail as its head, and a reader can open no line of `/$bunfs/root/…`.
+  const paused = await host.execute({key:'paused',request:{}},async()=>null).then(()=>null,error=>error as Error);
+  expect(paused?.message).toMatch(/^src\/graph\/operation-host\.ts:87: RUN_NOT_WRITABLE run paused unit running$/u);
+  expect(paused?.message).not.toContain('bunfs');
   await owner.transaction('write',tx=>changeOperationRunState(tx,EMPTY_CONTRACT,binding,runUid,'running'));
   const setUnitState=async(value:string)=>await owner.transaction('write',async tx=>{bindWriteCapability(tx,{...binding,permissions:[{kind:'system.unit',properties:['*'],assert:true,retractOwn:true}]});const id=(await tx.query<{id:string}>('SELECT id::text FROM node WHERE uid=$1::uuid',[unitUid])).rows[0]!.id;await writeAssertion(tx,EMPTY_CONTRACT,{sort:'vertex',kind:'system.unit',subjectId:id,property:'state',operation:'assert',value},1);});
   await setUnitState('completed');

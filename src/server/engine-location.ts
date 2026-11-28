@@ -116,3 +116,111 @@ function underProduct(location: string, product: string): boolean {
   if (root === '') return false;
   return location === root || location.startsWith(`${root}/`) || location.startsWith(`${root}:`);
 }
+
+/**
+ * A text the engine wrote, as the reader's page shows it (madarch-64o5.200): every engine location is
+ * taken out, wherever it stands — after the source path that opens a message, inside a sentence the
+ * engine composed, in a context field — and a stack frame that names only the engine's own bundle goes
+ * with it. A bundle frame carries no source map: its line and column are an offset in the shipped
+ * binary, not a line a reader can open. A frame at the checkout's own source keeps its line and column
+ * and loses only the folder this machine keeps the checkout in; a product's location stands as written.
+ *
+ * The record stays as the engine wrote it on disk: this reads it for a person, and the evidence a
+ * developer needs is still in the file beside the store.
+ */
+export function stripEngineLocations(text: string, product?: string, engineRoot: string = releaseRoot()): string {
+  const shown: string[] = [];
+  for (const line of text.split('\n')) {
+    const frame = frameOf(line);
+    if (frame === null) { shown.push(stripFieldsOf(line, product, engineRoot)); continue; }
+    const location = readerLocationOf(frame.location, engineRoot);
+    if (location !== null) shown.push(line.slice(0, frame.start) + location + line.slice(frame.end));
+  }
+  return shown.join('\n');
+}
+
+/** A stack frame's location in its line, with the positions it holds: the text inside the last parentheses, or the last word. */
+function frameOf(line: string): { readonly start: number; readonly end: number; readonly location: string } | null {
+  const start = firstWordStart(line);
+  if (start === 0 || line.slice(start, start + 2) !== 'at' || line[start + 2]?.trim() !== '') return null;
+  if (line.endsWith(')')) {
+    const open = line.lastIndexOf('(');
+    if (open >= 0) return { start: open + 1, end: line.length - 1, location: line.slice(open + 1, -1) };
+  }
+  const last = line.lastIndexOf(' ');
+  const location = line.slice(last + 1);
+  return location === '' ? null : { start: last + 1, end: line.length, location };
+}
+
+/**
+ * A location as the reader's page shows it: null for the engine's own bundle, which names a byte in the
+ * shipped binary rather than a line; the source path for a file of the checkout the engine was built
+ * from (`src/x.ts:12:3`); and the location as written for anything else — a product's file, a plugin's,
+ * a frame native to the runtime.
+ */
+function readerLocationOf(location: string, engineRoot: string): string | null {
+  const normalized = location.replaceAll('\\', '/');
+  for (const root of bundleRoots) if (normalized.startsWith(root)) return null;
+  for (const root of engineSourceRoots(engineRoot)) {
+    if (!normalized.startsWith(root)) continue;
+    const folder = root.slice(0, -1);
+    const checkout = folder.slice(0, folder.lastIndexOf('/') + 1);
+    return checkout === '' ? null : normalized.slice(checkout.length);
+  }
+  return location;
+}
+
+/** A line with every engine location a field of its own taken out: the one at its head first, then any later one. */
+function stripFieldsOf(line: string, product: string | undefined, engineRoot: string): string {
+  let text = stripEngineLocation(line, product, engineRoot);
+  for (;;) {
+    const found = nextEngineField(text, engineRoot);
+    if (found === null) break;
+    text = text.slice(0, found.start) + text.slice(found.end);
+  }
+  // A field whose whole value is one engine location has nothing left a reader can use: the bundle's own
+  // offset names no source, and the checkout's path names the machine more than it names the file.
+  const whole = text.trim();
+  if (whole === '' || holdsWhitespace(whole)) return text;
+  return readerLocationOf(whole, engineRoot) ?? '';
+}
+
+/** Where a line's first word starts, after the indentation a stack line carries. */
+function firstWordStart(line: string): number {
+  let start = 0;
+  while (start < line.length && line[start]!.trim() === '') start += 1;
+  return start;
+}
+
+/** True when a text holds a space, a tab or another character that is no part of a word. */
+function holdsWhitespace(text: string): boolean {
+  for (const character of text) if (character.trim() === '') return true;
+  return false;
+}
+
+/** The next engine location a line holds as a field: where it starts, and where the text it opens stops. */
+function nextEngineField(text: string, engineRoot: string): { readonly start: number; readonly end: number } | null {
+  const normalized = text.replaceAll('\\', '/');
+  for (let at = 0; at < normalized.length; at += 1) {
+    // A field stands where a phrase ends: at the line's head, after a space, or inside an opening parenthesis.
+    if (at !== 0 && normalized[at - 1] !== ' ' && normalized[at - 1] !== '(') continue;
+    const end = engineFieldEnd(normalized, at, engineRoot);
+    if (end !== null) return { start: at, end: end + 2 };
+  }
+  return null;
+}
+
+/** Where the engine location that starts at `at` stops, at the `: ` that follows it; null when no engine location starts there. */
+function engineFieldEnd(normalized: string, at: number, engineRoot: string): number | null {
+  for (const root of bundleRoots) {
+    if (!normalized.startsWith(root, at)) continue;
+    const end = normalized.indexOf(': ', at + root.length);
+    return end < 0 ? null : end;
+  }
+  for (const root of engineSourceRoots(engineRoot)) {
+    if (!normalized.startsWith(root, at)) continue;
+    const end = sourceLocationEnd(normalized, at + root.length);
+    return end < 0 ? null : end;
+  }
+  return null;
+}

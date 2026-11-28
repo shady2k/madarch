@@ -26,6 +26,7 @@
 import { closeSync, openSync, readSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { stripEngineLocations } from '../server/engine-location.js';
 import { withSpanSync } from '../obs/trace.js';
 
 /** The logs one answer may draw from. */
@@ -141,7 +142,11 @@ function contextOf(record: Readonly<Record<string, unknown>>, skip: ReadonlySet<
     if (skip.has(key) || secretField(key)) continue;
     const value = record[key];
     if (value === undefined) continue;
-    const text = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value) ?? String(value); } catch { return String(value); } })();
+    const raw = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value) ?? String(value); } catch { return String(value); } })();
+    // A context value the engine wrote is shown as the reader's page can use it: no engine location,
+    // and no field left that held only one (madarch-64o5.200).
+    const text = stripEngineLocations(raw);
+    if (raw !== '' && text === '') continue;
     const held = cutText(text, 2_000);
     out[key] = held.cut ? `${held.text}…` : held.text;
   }
@@ -317,11 +322,14 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'en
     if (record === null || typeof record !== 'object' || typeof record['message'] !== 'string') continue;
     const time = typeof record['time'] === 'string' ? Date.parse(record['time']) : Number.NaN;
     const error = record['error'] as { name?: unknown; message?: unknown; stack?: unknown } | undefined;
-    const detail = error === undefined ? null : cutText(typeof error.stack === 'string' ? error.stack : typeof error.message === 'string' ? error.message : '');
-    const event = engineEventOf(record['message']);
+    // A record the engine wrote is shown without an engine location (madarch-64o5.200): the bundle path and its frames
+    // are the machine's own bookkeeping, not a line a reader can open; the file keeps them as evidence.
+    const written = stripEngineLocations(record['message']);
+    const detail = error === undefined ? null : cutText(stripEngineLocations(typeof error.stack === 'string' ? error.stack : typeof error.message === 'string' ? error.message : ''));
+    const event = engineEventOf(written);
     // An error's place stands where it is written: at the message's own head, or in the cause the event carries as an
     // argument (`the plugin session failed: src/x.ts:1: …`), which is where a family's file and line are.
-    const own = placeOf(record['message']);
+    const own = placeOf(written);
     const place = own.file !== null || event?.arguments['detail'] === undefined ? own : placeOf(event.arguments['detail']);
     entries.push({
       id: `${run ?? ''}:${basename(file)}:${String(index)}`,
@@ -330,7 +338,7 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'en
       source,
       run,
       unit: typeof record['unitId'] === 'string' ? record['unitId'] : null,
-      message: cutText(record['message']).text,
+      message: cutText(written).text,
       code: event?.code ?? null,
       arguments: event?.arguments ?? {},
       quoted: event === null,
@@ -389,7 +397,7 @@ function entriesOfTraceFile(file: string, run: string | null): { entries: LogEnt
       source: 'trace', run, unit: null,
       message: `${span.name} ${Number.isFinite(start) && Number.isFinite(end) ? `${String(Math.max(0, Math.round(end - start)))} ms` : ''}`.trim(),
       code: null, arguments: {}, quoted: false,
-      file: null, line: null, path: null, detail: failed ? (typeof (span.status as { message?: unknown }).message === 'string' ? (span.status as { message: string }).message : null) : null,
+      file: null, line: null, path: null, detail: failed && typeof (span.status as { message?: unknown }).message === 'string' ? stripEngineLocations((span.status as { message: string }).message) : null,
       cut: false, fields,
     });
   }
@@ -434,14 +442,17 @@ function entriesOfAgentFile(file: string, run: string | null): { entries: LogEnt
     });
   }
   const failed = record.state === 'failed';
+  // The unit's failure is the engine's own sentence about it, so it is shown without an engine location (madarch-64o5.200);
+  // what the agent itself answered is its own text, kept as it was written.
+  const failure = typeof record.failure === 'string' ? stripEngineLocations(record.failure) : undefined;
   const answer = cutText(typeof record.returned?.text === 'string' ? record.returned.text : '');
   entries.push({
     id: `${run ?? ''}:${unit}:returned`, at: Number.isFinite(end) ? end : null, level: failed ? 'error' : 'info', source: 'agent', run, unit,
-    message: failed ? `the agent unit ${unit} failed: ${typeof record.failure === 'string' ? record.failure : 'no cause was recorded'}` : `the agent unit ${unit} returned ${String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0)} characters`,
+    message: failed ? `the agent unit ${unit} failed: ${failure ?? 'no cause was recorded'}` : `the agent unit ${unit} returned ${String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0)} characters`,
     code: failed ? 'agent-failed' : 'agent-returned',
-    arguments: failed ? { unit, detail: cutText(typeof record.failure === 'string' ? record.failure : '').text } : { unit, characters: String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0) },
+    arguments: failed ? { unit, detail: cutText(failure ?? '').text } : { unit, characters: String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0) },
     quoted: false, file: null, line: null, path: null,
-    detail: failed ? (typeof record.failure === 'string' ? record.failure : null) : answer.text === '' ? null : answer.text,
+    detail: failed ? (failure ?? null) : answer.text === '' ? null : answer.text,
     cut: failed ? false : answer.cut, fields: {},
   });
   return { entries, cut: false };
