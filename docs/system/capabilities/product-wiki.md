@@ -999,3 +999,54 @@ starts a run, is the orchestrator's and lands with later stages.
 - Given: a workflows manifest naming stages the registry holds whose required inputs each have a producer among them, and a planned workflow naming no stages
 - When: the workflows are read, by `bun run check` or by the wiki's own read of the product
 - Then: every workflow reads without a finding and the wiki's manifest findings hold none of its own
+
+## Requirement: logs — Every log madarch keeps is one page, and an agent's exchange is recorded with the run
+madarch shall record every agent unit's whole exchange itself, with the run, beside the run's trace: the prompt it sent
+(the plugin's instructions, the graph files the unit could open, the unit's task and the output contract), every kept
+step the agent streamed (its messages, its thoughts, each tool call with its answer and the file it named), every file it
+opened through madarch's file callbacks with its line range and size, the answer it returned, the agent's own usage
+report, its model, its session and the moments it started and ended. The record shall be bounded, and a cut shall be
+said; it shall never hold an environment value, an authentication header or the adapter's standard error; a unit that
+failed shall keep what it was given and why it failed; and the record shall be trimmed with the run's trace. Each plugin
+run's standard error shall be kept with the run as well.
+
+The wiki shall draw a log with one log viewer: a row of the moment, the level, the source and the message, the moment in
+the reader's clock and language with one time per row, the level as a shape rather than a word, the message in
+monospace, a virtualised list for many thousands of rows, a live tail with its pause, a copy of a row or of the text a
+reader selected, filters for the source, the level, the run and a window of time through the kit's own one-choice menu
+and moment field, a text search whose matches are marked, and empty and loading states in the reader's language. An
+error's row shall open its whole text, its stack and its context.
+
+The wiki shall have one Logs page that reads every log madarch keeps for the product and the knowledge root through one
+read route, with paging, the viewer's filters and a live tail while a run goes on: the server's records, the fills'
+records, each plugin run's standard error, each agent unit's exchange, the store's PostgreSQL log, and a run's spans when
+they are asked for. The engine's own events shall travel as a code with their arguments and be worded from the locales,
+so a page in either language shows words of that language; text madarch did not write — a plugin's standard error, the
+store's log, a message with no code — shall stand as it was written and be marked as quoted; and a field whose name
+speaks of a token, a secret, a password, a key, a cookie or a credential shall never be answered. The page shall have
+one heading.
+
+The run page shall keep a short journal of the run's key transitions, a repeated transition said once with its count,
+and every failure with the failure's own words and the file and line it stands at, the next action in words, and a link
+to its row in the Logs page; the run's time per stage shall be named in the reader's words, never by an engine id.
+
+### Scenario: exchange-kept
+- Given: a scripted agent unit that reads two graph files through the host's file reads and answers one JSON result
+- When: the run ends
+- Then: the run's record holds the prompt as sent, the unit's task, the two opened files with their sizes, every streamed step, the answer, the agent's reported tokens and the moments of the turn, and no environment value of the adapter stands in it
+### Scenario: exchange-kept-on-failure
+- Given: a scripted agent unit whose adapter ends with a failure, and a plugin unit whose standard error is not empty
+- When: the run ends
+- Then: the failed unit's record says why it failed, and each plugin run's standard error stands beside the run's trace
+### Scenario: logs-page-words
+- Given: a run whose log holds engine events and a plugin's standard error line, opened in Russian
+- When: the Logs page opens filtered to the run
+- Then: every engine row is worded in Russian from its code, the plugin's line stands as it was written and is marked quoted, each row carries one time in the reader's clock, the level is a shape, and the page has one heading
+### Scenario: logs-page-filters
+- Given: the Logs page open on a run
+- When: the reader chooses a source, a level and a run, sets a window of time and types a text
+- Then: each choice is the kit's own control, the page reads again with it, a match in a row is marked, and the live tail stops when it is paused and continues when it is resumed
+### Scenario: run-journal
+- Given: a run whose unit fails after a retry, with the plugin's own error naming a file and a line
+- When: its page is read
+- Then: the journal says the transition once with its count, states the failure's own words with the file and the line, the next action, and a link to the row in the logs, and names the time per stage in the reader's words
