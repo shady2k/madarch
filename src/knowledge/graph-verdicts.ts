@@ -46,7 +46,7 @@ import {
   type SpanPolicy,
 } from './graph-verdict-rules.js';
 
-export const GRAPH_VERDICT_VALIDATOR_VERSION = '1';
+export const GRAPH_VERDICT_VALIDATOR_VERSION = '2';
 /** The judge protocol's version; a change invalidates every judged verdict. */
 export const GRAPH_VERDICT_JUDGE_VERSION = '1';
 export const JUDGE_BATCH_SIZE = 50;
@@ -106,7 +106,13 @@ export interface GraphEvidenceContent {
 }
 
 /** Reads a repository-relative path at a pinned commit; `undefined` when that commit has no such file. */
-export type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
+export interface GraphEvidenceAddress {
+  readonly repository?: string;
+  readonly blob?: string;
+  readonly commit?: string;
+}
+
+export type GraphEvidenceReader = (path: string, address?: GraphEvidenceAddress) => Promise<GraphEvidenceContent | undefined>;
 
 export interface GraphVerdictRow {
   readonly role: GraphVerdictRole;
@@ -638,7 +644,16 @@ function evidencePaths(value: unknown): string[] {
  */
 async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader | undefined, signal?: AbortSignal): Promise<Map<string, ResolvedFile>> {
   const declared = declaredFiles(snapshot);
-  const paths = new Set<string>(declared.keys());
+  const addresses = new Map<string, GraphEvidenceAddress[]>();
+  for (const node of snapshot.nodes) {
+    if (node.kind !== GIT_KINDS.file) continue;
+    const { path, repositoryName, blob, commit } = propsOf(node.properties);
+    if (typeof path !== 'string' || path === '' || typeof repositoryName !== 'string') continue;
+    const held = addresses.get(path) ?? [];
+    held.push({ repository: repositoryName, ...(typeof blob === 'string' ? { blob } : {}), ...(typeof commit === 'string' ? { commit } : {}) });
+    addresses.set(path, held);
+  }
+  const paths = new Set<string>([...declared.keys(), ...addresses.keys()]);
   for (const node of snapshot.nodes) for (const path of evidencePaths(node.properties)) paths.add(path);
   for (const edge of snapshot.edges) for (const path of evidencePaths(edge.properties)) paths.add(path);
   const files = new Map<string, ResolvedFile>();
@@ -651,7 +666,9 @@ async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader
     }
     let content: GraphEvidenceContent | undefined;
     try {
-      content = await reader(path);
+      const candidates = addresses.get(path) ?? [];
+      // A path-only citation cannot distinguish two repository facts with the same path.
+      if (candidates.length <= 1) content = await reader(path, candidates[0]);
       signal?.throwIfAborted();
     } catch (error) {
       signal?.throwIfAborted();
@@ -659,7 +676,7 @@ async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader
       continue;
     }
     if (content === undefined) {
-      files.set(path, { ...(held ?? { path }), problem: `the file ${JSON.stringify(path)} is not in the pinned repository at the fill's commit` });
+      files.set(path, { ...(held ?? { path }), problem: `evidence not found: the file ${JSON.stringify(path)} is not unambiguously held by the pinned repository at the fill's commit` });
       continue;
     }
     const actualSha256 = content.sha256 ?? sha256(content.text);

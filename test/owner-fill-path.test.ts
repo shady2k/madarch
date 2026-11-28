@@ -164,20 +164,22 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
   await step('5 the code-kind counts are the repository tree', async () => {
     const data = await graphql(`query { navigation { kinds { kind count } } allCodeFile(first: 1) { totalCount edges { node { id path } } } }`);
     const counts = new Map((data['navigation'].kinds as { kind: string; count: number }[]).map((one) => [one.kind, one.count] as const));
-    // The paths the product's own kinds leave out are no part of its knowledge: its declaration is the rule, and the
-    // plugin's matcher reads it here as the fill did (madarch-64o5.83).
+    // The product's own checkout is no code repository of the graph (ALX-1937, FR-005, FR-006): the code kinds are the
+    // linked repository's alone, and the paths the product's own kinds leave out are no part of its knowledge — its
+    // declaration is the rule, and the plugin's matcher reads it here as the fill did (madarch-64o5.83).
     const declared = readKinds(folder);
     if (!declared.present) throw new Error('the product holds no manifest');
     const patterns = [...new Set([...(declared.manifest.kinds.get('code.file')?.exclude ?? []), ...(declared.manifest.kinds.get('code.directory')?.exclude ?? [])])];
     const listed = (repo: string): string[] => git(repo, ['ls-files']).split('\n').filter(Boolean).filter((path) => !excludedPath(path, patterns));
-    const files = listed(folder).concat(listed(code));
+    const files = listed(code);
     // Every folder a file lies in, and every folder above it: the plugin makes one directory entity for each.
     const directories = new Set<string>();
     for (const path of files) {
       let folderPath = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
       while (folderPath !== '') { directories.add(folderPath); const at = folderPath.lastIndexOf('/'); folderPath = at < 0 ? '' : folderPath.slice(0, at); }
     }
-    const expected = { 'code.repository': 2, 'code.directory': directories.size, 'code.file': files.length };
+    // One `code.repository`: the linked one. The product's own repository is no code repository of its graph.
+    const expected = { 'code.repository': 1, 'code.directory': directories.size, 'code.file': files.length };
     for (const [kind, count] of Object.entries(expected)) {
       if (counts.get(kind) !== count) throw new Error(`${kind} counts ${String(counts.get(kind))}, and the repositories hold ${String(count)}`);
     }

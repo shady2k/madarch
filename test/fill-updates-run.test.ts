@@ -24,9 +24,11 @@ async function openPreparationOwner(): Promise<void> {
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { runGit } from '../src/product/git.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
-import { readProduct } from '../src/product/manifest.js';
+import { readProductFillState, readStoreStamp } from '../src/graph/fill-state.js';
+import { readRunConfiguration } from '../src/graph/fill-orchestration.js';
+import { manifestWithRepo, readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +51,7 @@ let lastRequest = '';
 let lines: string[] = [];
 /** The wiki app's built files, as a served product needs them: the test's own folder with its shell in it. */
 let commit = '';
+let linkedCommit = '';
 
 /** One git call in a fixture checkout, through the project's own runner (which strips a caller's loader variables). */
 function git(folder: string, ...args: string[]): string {
@@ -73,14 +76,22 @@ beforeAll(async () => {
   product = join(home, 'shop');
   mkdirSync(join(product, 'src'), { recursive: true });
   mkdirSync(join(product, 'docs'), { recursive: true });
-  writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: shop\n');
+  const linked = join(root, 'linked');
+  mkdirSync(linked);
+  git(linked, 'init', '-q', '-b', 'main');
+  writeFileSync(join(linked, 'index.ts'), 'export const linked = 1;\n');
+  const originalLinked = commitAll(linked, 'one');
+  mkdirSync(join(product, 'repos'));
+  symlinkSync(linked, join(product, 'repos', 'linked'), 'dir');
+  writeFileSync(join(product, '.gitignore'), '/repos/\n');
+  writeFileSync(join(product, 'workspace.yaml'), manifestWithRepo('schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: shop\n', { name: 'linked', linked: true, branch: 'main' }));
   writeFileSync(join(product, 'src', 'order.ts'), 'export function checkout(): number {\n  return 42;\n}\n');
   writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 42;\n}\n');
   writeFileSync(join(product, 'docs', 'readme.md'), '# Shop\n\nThe shop adds up an order.\n');
   useRepositoryPlugins(product);
   git(product, 'init', '-q');
   git(product, 'symbolic-ref', 'HEAD', 'refs/heads/main');
-  commitAll(product, 'one');
+  commit = commitAll(product, 'one');
 
 
   const fills = daemonFills(home);
@@ -92,13 +103,12 @@ beforeAll(async () => {
   // and the gate itself is `test/fill-updates.test.ts`'s subject.
   watch = daemonUpdateWatch(home, fills, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line), enabled: () => true });
   await watch.outset();
-  // One commit on the default branch of the product repository, after the watcher read its baseline. The pass that
-  // reads the commit keeps it waiting for the debounce, and the timer that ends the debounce runs the pass that
-  // starts the run and drives it to its end — nothing else drives the watcher here.
-  writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 43;\n}\n');
-  commit = commitAll(product, 'two');
+  // Only the linked default branch advances. The stored run still pins the product's original commit.
+  writeFileSync(join(linked, 'index.ts'), 'export const linked = 2;\n');
+  linkedCommit = commitAll(linked, 'two');
+  expect(linkedCommit).not.toBe(originalLinked);
   await watch.pass();
-  lastRequest = `update-shop-${commit.slice(0, 12)}`;
+  lastRequest = `update-shop-${linkedCommit.slice(0, 12)}`;
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     await pause(250);
@@ -179,17 +189,23 @@ describe('the update a default-branch commit starts', () => {
     expect(await service!.progress(other)).toBeNull();
   }, 900_000);
 
-  test('the update reaches the store the wiki reads: its pins name the commit the daemon filled', async () => {
+  test('the update reaches the store the wiki reads: the run it started stands there, and no code repository of the product itself would', async () => {
     const read = readProduct(product);
     if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
     // The one store of this product, resolved by the function the button, `madarch fill-stages` and `madarch mcp` use.
     const store = productStoreFolder(product, knowledgeRootOf(home));
-    // The wiki reads this store directly (madarch-8bdc.9): the update's pins are what it states.
+    // The wiki reads this store directly (madarch-8bdc.9): the run and its stamp are what it states.
     const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
     await owner.ready;
     try {
-      // The pins are the graph's own rows (stage 3: `knowledge_fill` is gone): the repository entity and its as-is edge.
-      expect((await repositoryFacts(owner, read.product.name))?.asIsCommit).toBe(commit);
+      const state = await readProductFillState(owner, 'shop');
+      expect(state.runs.find((run) => run.runId === lastRequest)?.state).toBe('succeeded');
+      expect(state.stamp).toBe(await readStoreStamp(owner));
+      const configuration = await readRunConfiguration(owner, lastRequest);
+      expect(configuration?.snapshot.commit).toBe(commit);
+      expect(configuration?.snapshot.repository).toBe(read.product.folder);
+      expect(await repositoryFacts(owner, 'linked')).toMatchObject({ asIsCommit: linkedCommit, defaultBranch: 'main' });
+      expect(await repositoryFacts(owner, read.product.name)).toBeNull();
     } finally {
       await owner.close();
     }

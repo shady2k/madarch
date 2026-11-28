@@ -156,6 +156,25 @@ describe('deterministic graph rules read the pinned bytes', () => {
     expect(rowOf(result, 'file-gone')?.reason).toContain("fill's commit");
   });
 
+  test('the verdict reader receives the repository, blob and commit, and refuses a path shared by linked repositories', async () => {
+    const path = 'src/a.ts';
+    const source = file('file-a');
+    const properties = { ...source.properties as object, path, repositoryName: 'alpha', blob: 'object', commit: 'revision' };
+    const first = { ...source, properties };
+    const asked: unknown[] = [];
+    const options = { roles: NO_ROLES, budgets: { itemsPerRun: 0, modelCallsPerRun: 0 }, readEvidence: async (...args: Parameters<NonNullable<Parameters<typeof runGraphVerdicts>[0]['readEvidence']>>) => {
+      asked.push(args);
+      return { text: TEXTS[path]! };
+    } };
+    await runGraphVerdicts({ ...options, snapshot: { nodes: [first], edges: [] } });
+    expect(asked).toEqual([[path, { repository: 'alpha', blob: 'object', commit: 'revision' }]]);
+    asked.length = 0;
+    const other = { ...source, id: 'other', properties: { ...properties, repositoryName: 'beta' } };
+    const result = await runGraphVerdicts({ ...options, snapshot: { nodes: [first, other], edges: [] } });
+    expect(asked).toEqual([]);
+    expect(rowOf(result, first.id)?.reason).toContain('evidence not found');
+  });
+
   test('with no pinned reader nothing with evidence is valid, and the reason says why', async () => {
     const result = await runGraphVerdicts({ snapshot: withFiles(database()), roles: NO_ROLES, budgets: { itemsPerRun: 0, modelCallsPerRun: 0 } });
     expect(rowOf(result, 'file:db/schema.sql')?.verdict).toBe('unreviewed');
@@ -387,7 +406,7 @@ describe('judging', () => {
     const second = await runGraphVerdicts({ snapshot: changed, roles: NO_ROLES, budgets: { itemsPerRun: 0, modelCallsPerRun: 0 }, readEvidence: reader(), previous: first.cache });
     expect(second.metrics.checked).toBe(1);
     expect(second.metrics.reused).toBe(first.rows.length - 1);
-    const third = await runGraphVerdicts({ snapshot: changed, roles: NO_ROLES, budgets: { itemsPerRun: 0, modelCallsPerRun: 0 }, readEvidence: reader(), previous: second.cache, validatorVersion: '2' });
+    const third = await runGraphVerdicts({ snapshot: changed, roles: NO_ROLES, budgets: { itemsPerRun: 0, modelCallsPerRun: 0 }, readEvidence: reader(), previous: second.cache, validatorVersion: '3' });
     expect(third.metrics.reused).toBe(0);
     expect(third.metrics.checked).toBe(third.rows.length);
   });

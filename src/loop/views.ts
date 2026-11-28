@@ -11,7 +11,6 @@ import { changedGrounds, graphKnowledgePages, type IndexedPage } from '../knowle
 import { pageOpinionKinds } from '../knowledge/markdown.js';
 import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
-import type { ProductFileSource } from '../plugin/product-files.js';
 import { entityAddress, sourceAddress, type BrokenWhy, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import type { Author } from './entities.js';
@@ -103,8 +102,6 @@ export interface ProblemInput {
   readonly graph: LoopGraph;
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
-  /** The product repository's own files as the graph holds them, and the manifest they declare: the pages are read here. */
-  readonly files: ProductFileSource;
   readonly manifest: KindsManifest;
   /** The single code repository the pages are written from, with the commit the graph describes; absent when there is not exactly one. */
   readonly repository?: { readonly name: string; readonly path: string; readonly commit: string };

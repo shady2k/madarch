@@ -34,7 +34,9 @@ import { publishedRelationWords, type PublishedEdge, type PublishedField, type P
 import type { ProductTemplates } from './product-templates.js';
 import { withManifestContract, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
 import { join } from 'node:path';
-import { catalogueFileTextRole } from '../knowledge/file-text-kind.js';
+import { catalogueFileTextRole, fileTextExclusions } from '../knowledge/file-text-kind.js';
+import { sourceRange, sourceTextOf, visibleSourcePath, type SourceRange } from '../knowledge/product-pinned-source.js';
+import { publishedSourceText } from './manifest-publication.js';
 import { checkProductTemplates } from './template-check.js';
 import type { TemplateFile } from '../page-contract/template.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
@@ -296,6 +298,8 @@ export class ReadContext {
     /** One page of every log the product keeps, when the caller can read them (the logs page's own evidence). */
     private readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown,
     selectors: { readonly context?: number; readonly validAt?: string; readonly recordedAt?: string } = {},
+    private readonly sourceProduct?: { readonly own: string; readonly linked: readonly string[] },
+    private readonly readPinnedText?: (repository: string, path: string, exclude: readonly string[], range: SourceRange) => Promise<Record<string, unknown> | undefined>,
   ) {
     this.validAt = selectors.validAt ?? new Date().toISOString();
     this.recordedAt = selectors.recordedAt ?? new Date().toISOString();
@@ -1161,36 +1165,46 @@ export class ReadContext {
       const declared = fileTextKind(this.manifest);
       const roles = declared?.fileText ?? catalogueFileTextRole();
       const kind = declared?.name ?? roles.kind;
-      if (kind === undefined) return null;
       const declaration = this.published.kinds.find(one => one.name === kind);
       const blobField = declaration?.fields.find(one => one.name === roles.blob);
       const pathField = declaration?.fields.find(one => one.name === roles.path);
-      if (declaration === undefined || blobField === undefined || pathField === undefined) return null;
-      const parent = this.manifest.kinds.get(kind)?.keyEdges?.find(one => one.role === roles.repository);
-      if (parent === undefined) return null;
-      const sql = new Sql();
-      const pathValue = this.fieldExpr(declaration, pathField, 'n', sql, undefined);
-      const blobValue = this.fieldExpr(declaration, blobField, 'n', sql, undefined);
-      const found = await this.tx.query<{ blob: unknown }>(
-        `SELECT ${blobValue} AS blob FROM node n JOIN entity k ON k.id=n.entity_id
-         JOIN edge e ON e.${parent.direction === 'from' ? 'from_node' : 'to_node'}=n.id JOIN entity ek ON ek.id=e.entity_id
-         JOIN node repository ON repository.id=e.${parent.direction === 'from' ? 'to_node' : 'from_node'}
-         WHERE k.name=${sql.param(kind, '::text')} AND ek.name=${sql.param(parent.edge, '::text')}
-           AND repository.key->>'name'=${sql.param(repository, '::text')} AND ${pathValue}=${sql.param(path, '::text')}
-           AND ${this.active('vertex', 'n')} AND ${this.active('vertex', 'repository')} AND ${this.active('edge', 'e')} LIMIT 1`, sql.params);
-      const blob = found.rows[0]?.blob;
-      if (typeof blob !== 'string' || blob === '') return null;
-      // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
-      // says so, so two revisions are never interleaved.
+      const parent = kind === undefined ? undefined : this.manifest.kinds.get(kind)?.keyEdges?.find(one => one.role === roles.repository);
+      const own = this.sourceProduct?.own === repository;
+      let blob: string | undefined;
+      if (!own && !this.sourceProduct?.linked.includes(repository) && this.sourceProduct !== undefined) return null;
+      if (!own && kind !== undefined && declaration !== undefined && blobField !== undefined && pathField !== undefined && parent !== undefined) {
+        const sql = new Sql();
+        const pathValue = this.fieldExpr(declaration, pathField, 'n', sql, undefined);
+        const blobValue = this.fieldExpr(declaration, blobField, 'n', sql, undefined);
+        const modeField = declaration.fields.find(one => one.name === 'mode');
+        const modeValue = modeField === undefined ? 'NULL' : this.fieldExpr(declaration, modeField, 'n', sql, undefined);
+        const found = await this.tx.query<{ blob: unknown; mode: unknown }>(
+          `SELECT ${blobValue} AS blob, ${modeValue} AS mode FROM node n JOIN entity k ON k.id=n.entity_id
+           JOIN edge e ON e.${parent.direction === 'from' ? 'from_node' : 'to_node'}=n.id JOIN entity ek ON ek.id=e.entity_id
+           JOIN node repository ON repository.id=e.${parent.direction === 'from' ? 'to_node' : 'from_node'}
+           WHERE k.name=${sql.param(kind, '::text')} AND ek.name=${sql.param(parent.edge, '::text')}
+             AND repository.key->>'name'=${sql.param(repository, '::text')} AND ${pathValue}=${sql.param(path, '::text')}
+             AND ${this.active('vertex', 'n')} AND ${this.active('vertex', 'repository')} AND ${this.active('edge', 'e')} LIMIT 2`, sql.params);
+        if (found.rows.length > 1 || ['120000', '160000'].includes(String(found.rows[0]?.mode))) return null;
+        const candidate = found.rows[0]?.blob;
+        if (typeof candidate === 'string' && candidate !== '') blob = candidate;
+      }
       const held = typeof args['blob'] === 'string' ? args['blob'] : undefined;
-      const moved = held !== undefined && held !== blob;
       const integer = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
-      const answer = await this.readText({
-        repository, path, blob, moved,
-        from: moved ? 1 : integer(args['from']) ?? 1,
-        ...(integer(args['to']) === undefined || moved ? {} : { to: integer(args['to'])! }),
-        ...(moved ? {} : integer(args['fromColumn']) === undefined ? {} : { fromColumn: integer(args['fromColumn'])! }),
-      });
+      const from = integer(args['from']);
+      const to = integer(args['to']);
+      const fromColumn = integer(args['fromColumn']);
+      const range = { ...(held === undefined ? {} : { blob: held }), ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), ...(fromColumn === undefined ? {} : { fromColumn }) };
+      if (!visibleSourcePath(path, fileTextExclusions(this.manifest))) return null;
+      if (blob === undefined) {
+        if (own) {
+          const stored = await publishedSourceText(this.tx, this.manifest, path);
+          if (stored !== undefined) return sourceTextOf(stored, range);
+        }
+        return await this.readPinnedText?.(repository, path, fileTextExclusions(this.manifest), range) ?? null;
+      }
+      const { moved, ...lines } = sourceRange(blob, range);
+      const answer = await this.readText({ repository, path, blob, moved, ...lines });
       return answer ?? null;
     });
   }

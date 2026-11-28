@@ -23,8 +23,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { fileTextKind, homeKind, kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
-import { productEntityOf, readProduct } from '../product/manifest.js';
-import { productRepositoryId } from '../product/identity.js';
+import { productEntityOf } from '../product/manifest.js';
 import type { GraphContract } from '../graph/contract.js';
 import { graphFiles, producerEntities, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome, sdkReference } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedAssertions, type EvidenceDeclaration } from '../graph/index.js';
@@ -61,6 +60,7 @@ export interface PluginTurnWiring {
   /** Host-owned adapter configuration, present only for a pressed agent fill. */
   readonly agent?: PluginAgentOptions;
   readonly productFolder: string;
+  readonly expectedCodeRepositories?: number;
   readonly manifest: KindsManifest;
   /** The plugins the lock records, by id; a declared plugin the lock does not hold does not run. */
   readonly locks: ReadonlyMap<string, PluginLockEntry>;
@@ -227,7 +227,7 @@ function selectedVertex(wiring: PluginTurnWiring, kind: string): string | undefi
 
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  const applicability = await fillProductProfile(wiring.owner, wiring.contract, wiring.manifest, wiring.snapshots);
+  const applicability = await fillProductProfile(wiring.owner, wiring.contract, wiring.manifest, wiring.snapshots, wiring.expectedCodeRepositories);
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
@@ -533,6 +533,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
   const only = selectedVertex(wiring, unit.kind.name);
   const currentPins = await withSpan('plugin.reconciliation-pins', {}, async () => await wiring.snapshots.pins());
+  // The code a plugin turn reads is the product's linked repositories, and never the product's own checkout (ALX-1937):
+  // that checkout is pinned to read the manifests, so it reaches no plugin and no agent as source code. A folder that is
+  // no product is pinned as `code` (`fillFolderIdentity`), so a plain repository still reads its own tree here.
+  const codePins = currentPins.filter((pin) => pin.form !== 'product');
   let priorFactCount = 0;
   const reconciliationGraph: GraphAnswerer = {
     ...(graph ?? pluginGraphAnswerer(wiring)),
@@ -595,8 +599,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
-        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot, { ...(wiring.unconfined === true ? { unconfined: true } : {}) }))
-        : { filesystemInputs: [], repositories: currentPins.map((pin) => ({ repository: pin.id, commit: pin.commit })) };
+        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(codePins, workRoot, { ...(wiring.unconfined === true ? { unconfined: true } : {}) }))
+        : { filesystemInputs: [], repositories: codePins.map((pin) => ({ repository: pin.id, commit: pin.commit })) };
     } catch (error) {
       withSpanSync('plugin.cleanup', {}, () => rmSync(workRoot, { recursive: true, force: true }));
       throw error;
@@ -687,11 +691,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, comple
       // (0039, item 1): the start wrote that vertex under the same identity, and a product with no home kind in the
       // graph has none to name, so the plugin is handed no product and states no such edge.
       const product = productEntityOf(wiring.productFolder, { home: homeKind(wiring.manifest) }, undefined);
-      // The product's own checkout is pinned under its own identity, and it is not a repository the product uses: a
-      // product that referred to itself would say nothing a reader could follow.
-      const read = product === undefined ? undefined : readProduct(wiring.productFolder);
-      const productRepository = read?.ok === true ? productRepositoryId(read.product) : undefined;
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(product === undefined ? {} : { product: { kind: product.kind, key: product.key } }), ...(productRepository === undefined ? {} : { productRepository }), ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(exclude === undefined ? {} : { exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, declaredKeyEdges, repositories: repositoryInputs.repositories, ...(product === undefined ? {} : { product: { kind: product.kind, key: product.key } }), ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(exclude === undefined ? {} : { exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();
@@ -820,7 +820,10 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   return {
     id: PLUGIN_TURN_STAGE_ID,
-    version: 11,
+    // 12: a plugin turn and the fill agent read the product's linked repositories alone (ALX-1937); the input
+    // contract of every unit moved, so a run on an unchanged commit plans its units again instead of inheriting the
+    // publication of a turn that read the product's own checkout.
+    version: 12,
     unitScheduling(id) {
       // A kind nothing produces is planned as one unit that fails with the plan's error, so the run reports that kind
       // and the others still run (madarch-64o5.60).

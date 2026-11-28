@@ -26,15 +26,26 @@ workflow leaves the others standing.
 
 ## How the wiki reads them
 
-The wiki reads the product's own files from the product repository. It does
-not hold a kind of its own: `madarch/kinds.yaml` is the only source of kinds,
-and a product that holds no such file has no pages.
+The wiki does not hold a kind of its own: `madarch/kinds.yaml` is the only
+source of kinds, and a product that holds no such file has no pages.
 
-Pressing Fill in the wiki, or running `madarch fill`, reads the product
-repository into the graph: the kinds manifest, the documents, the templates
-and the code of the repositories the manifest declares. The wiki then serves
-the pages from that graph. An edit to a manifest takes effect at the next
-fill, not at the next reload.
+The catalogue is published when the server opens the product, from the
+manifests themselves and with no agent: the kinds with their fields, the
+workflows and the relationship types are available once startup publication
+completes, which the server finishes before it answers its first read, and
+before anyone presses Fill. While the product is open, the background server
+watches its declaration files (`madarch/kinds.yaml`, `madarch/kinds/`,
+`madarch/workflows.yaml`, `madarch/plugins.lock`, a plugin's `plugin.json` and
+`contract.json`, a template) and republishes a valid edit; a one-shot serve
+publishes at its start and at no other time.
+
+Pressing Fill in the wiki, or running `madarch fill`, publishes what those
+kinds hold. A fill reads code only from the code repositories the manifest
+declares under `repos:`: they are the only repositories a code plugin and a
+fill agent are given, so a `code.repository`, `code.directory` and
+`code.file` in the graph name a connected repository and never the product's
+own checkout. The product's own repository is still pinned, at the commit the
+run stands on, because that is where its manifests are read from.
 
 A product whose manifest does not read is not a product: `madarch init`,
 `madarch list` and `madarch serve` refuse it and name the file and the line.

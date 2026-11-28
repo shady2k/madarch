@@ -7,6 +7,8 @@ import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, structureRevisionOf } from '../graph/graphql-execute.js';
 import { declareFileTextQueue, readFileTextByBlob } from '../knowledge/file-texts.js';
 import { readProduct } from '../product/manifest.js';
+import { productRepositoryId } from '../product/identity.js';
+import { pinnedProductSources, sourceRange, type SourceRange } from '../knowledge/product-pinned-source.js';
 import type { QueueService } from '../fill/queue.js';
 import { openFillRunQueue } from '../fill/run-jobs.js';
 import { join } from 'node:path';
@@ -15,7 +17,6 @@ import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
 import { DIAGRAM_DEPTH, DIAGRAM_AGGREGATE_ABOVE, DIAGRAM_MAX_BYTES, type DiagramAnswer } from '../render/diagram-render.js';
 import type { ReadDescriptor, ReadWork } from '../render/read-worker.js';
-import type { PoolConfig } from 'pg';
 import { LOG_LEVELS, LOG_SOURCES, logsAnswer } from '../knowledge/logs.js';
 
 declare const self: Worker;
@@ -137,8 +138,8 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
     if (asked.descriptor !== undefined) owner = await createPostgresDatabaseOwner(asked.descriptor.connection);
     let answer: unknown;
     if (asked.kind === 'graphql') {
-      texts = fileTextOf(asked.descriptor.connection, asked.descriptor.folder);
-      answer = await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: texts.read, logs: logsReaderOf(asked.descriptor) }, asked.operation);
+      texts = fileTextOf(asked.descriptor);
+      answer = await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: texts.read, readPinnedText: texts.pinned, ...(texts.identity === undefined ? {} : { sourceProduct: texts.identity }), logs: logsReaderOf(asked.descriptor) }, asked.operation);
     } else answer = await diagram(asked, owner);
     await texts?.close();
     await owner?.close();
@@ -160,7 +161,9 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
  * fill role until the commit, and the owner refuses a queue opened inside its own transaction (`OwnWorkError`). A page
  * that reads no source opens nothing and pays nothing.
  */
-function fileTextOf(connection: PoolConfig, product: string): { read: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>; close: () => Promise<void> } {
+let sourceMemo: { folder: string; seq: number; lookup: ReturnType<typeof pinnedProductSources> } | undefined;
+
+function fileTextOf({ connection, folder: product, sourceRevisions }: ReadDescriptor) {
   let queueOwner: DatabaseOwner | undefined;
   let opened: Promise<QueueService> | undefined;
   const queue = async (): Promise<QueueService> => {
@@ -168,17 +171,24 @@ function fileTextOf(connection: PoolConfig, product: string): { read: (ask: { re
     opened ??= openFillRunQueue(queueOwner).then(async (held) => { await declareFileTextQueue(held); return held; });
     return await opened;
   };
-  const read = async (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }): Promise<Record<string, unknown> | undefined> => {
-    // The repository is the one the product connected, read where its manifest declares it: a folder under repos/, or the
-    // product folder itself, checked by the host before a byte is read.
-    const held = readProduct(product);
-    const root = held.ok && ask.repository === held.product.name ? product : join(product, 'repos', ask.repository);
-    const answer = await readFileTextByBlob(await queue(), {
-      product, repository: ask.repository, root, blob: ask.blob, from: ask.from,
-      fromColumn: ask.moved ? null : ask.fromColumn ?? null,
-      to: ask.moved ? null : ask.to ?? null,
-    });
-    return { ...answer, blob: ask.blob, from: ask.from, ...(ask.moved ? { moved: true } : {}) };
+  const held = readProduct(product);
+  const identity = held.ok ? { own: productRepositoryId(held.product), linked: held.product.repos.map(repo => repo.name) } : undefined;
+  const read = async (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => {
+    if (!identity?.linked.includes(ask.repository)) return undefined;
+    return await readBlob(ask.repository, join(product, 'repos', ask.repository), ask.blob, ask);
   };
-  return { read, close: async () => { const held = queueOwner; queueOwner = undefined; opened = undefined; await held?.close(); } };
+  const readBlob = async (repository: string, root: string, blob: string, range: { moved: boolean; from: number; fromColumn?: number; to?: number }) => {
+    const answer = await readFileTextByBlob(await queue(), { product, repository, root, blob, from: range.from, fromColumn: range.fromColumn ?? null, to: range.to ?? null });
+    return { ...answer, blob, from: range.from, ...(range.moved ? { moved: true } : {}) };
+  };
+  const pinned = async (repository: string, path: string, exclude: readonly string[], range: SourceRange) => {
+    if (!held.ok || sourceRevisions === undefined) return undefined;
+    if (sourceMemo?.folder !== product || sourceMemo.seq !== sourceRevisions.seq) {
+      sourceMemo = { folder: product, seq: sourceRevisions.seq, lookup: pinnedProductSources(held.product, sourceRevisions.commits) };
+    }
+    const entry = await sourceMemo.lookup(repository, path, exclude);
+    if (entry === undefined) return undefined;
+    return await readBlob(repository, entry.pin.root, entry.blob, sourceRange(entry.blob, range));
+  };
+  return { identity, read, pinned, close: async () => { await queueOwner?.close(); } };
 }

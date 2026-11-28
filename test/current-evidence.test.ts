@@ -10,7 +10,6 @@ import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { collectProblems } from '../src/problems/index.js';
 import { defaultSettings } from '../src/problems/types.js';
-import { workingTreeFiles } from '../src/plugin/product-files.js';
 import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 
 const factKind: VertexContract = {
@@ -85,7 +84,7 @@ test('the Problems collector counts a current evidence dismissal after the rule 
   const { id, ...rule } = STARTER_PROBLEM_RULES.find(rule => rule.id === 'evidence-applicability')!;
   const read = async (rules: typeof settings.rules, dismissed?: ReadonlySet<string>) => await collectProblems({
     productFolder: '/fixture', owner, manifest, graph: new GraphReader(owner, () => new Date().toISOString()),
-    files: workingTreeFiles('/fixture'), settings: { ...settings, rules }, findings: [],
+    settings: { ...settings, rules }, findings: [],
     resolve: async () => { throw new Error('the fixture has no grounds'); },
     ...(dismissed === undefined ? {} : { dismissed }),
   });

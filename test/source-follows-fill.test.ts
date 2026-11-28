@@ -8,7 +8,7 @@ import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fi
 import { afterAll, beforeAll, expect, test, spyOn } from 'bun:test';
 import { Client } from 'pg';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -19,7 +19,7 @@ import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { fillInProcess } from './fill-inline.js';
-import { activateTestProduct, retainTestStorePreparationOwner } from './prepared-server.js';
+import { activateTestProduct, startPreparedServer, retainTestStorePreparationOwner } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
@@ -118,7 +118,12 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
   git(repository, 'add', '-A');
   git(repository, 'commit', '-qm', 'first');
-  folder = makeProduct(home, 'source-follow', repository, 'code');
+  folder = makeProduct(home, 'code', repository, 'code');
+  mkdirSync(join(folder, 'src'), { recursive: true });
+  writeFileSync(join(folder, 'src/a.ts'), 'export const product = 1;\n');
+  mkdirSync(join(folder, 'node_modules/fixture'), { recursive: true });
+  writeFileSync(join(folder, 'node_modules/fixture/hidden.ts'), 'export {};\n');
+  git(folder, 'add', '-f', 'node_modules/fixture/hidden.ts');
   // The fixture declares its own source role and graph relationships; no field name selects it.
   mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
   writeFileSync(join(folder, 'madarch/kinds/common/attachment/fixture-text.yaml'), SOURCE_KIND);
@@ -184,6 +189,52 @@ test('a page query answers a source read through the read worker, not inside its
     expect(body.data?.source?.text).toBe('export const a = 1;\n');
   } finally { await api.close(); }
 }, 180_000);
+
+test('REST and GraphQL name the right checkout after both HEADs and the linked working copy move', async () => {
+  const linkedCommit = headOf();
+  const productCommit = git(folder, 'rev-parse', 'HEAD');
+  const manifest = readFileSync(join(folder, 'madarch/catalog.yaml'), 'utf8');
+  await publishBlob('src/a.ts', blobOf('src/a.ts'));
+  const appFolder = join(work, 'app');
+  mkdirSync(appFolder, { recursive: true });
+  writeFileSync(join(appFolder, 'index.html'), '<!doctype html><title>Source fixture</title>');
+  const server = await startPreparedServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(home), appFolder, port: 0 });
+  try {
+    expect((await fetch(`${server.url}/graphql/schema`)).status).toBe(200);
+    writeFileSync(join(repository, 'src/a.ts'), 'export const linkedHead = 2;\n');
+    git(repository, 'commit', '-qam', 'new linked HEAD');
+    writeFileSync(join(repository, 'src/a.ts'), 'export const dirty = 3;\n');
+    writeFileSync(join(folder, 'src/a.ts'), 'export const productHead = 2;\n');
+    writeFileSync(join(folder, 'madarch/catalog.yaml'), `${manifest}\n# later product HEAD\n`);
+    git(folder, 'commit', '-qam', 'new product HEAD');
+    writeFileSync(join(folder, 'src/uncommitted.ts'), 'export {};\n');
+    const rest = async (query: string) => {
+      const response = await fetch(`${server.url}/api/source?${query}`);
+      expect(response.status).toBe(200);
+      return await response.json();
+    };
+    expect(await rest('path=src/a.ts')).toMatchObject({ text: 'export const product = 1;\n', commit: productCommit });
+    expect(await rest('repo=code&path=src/a.ts')).toMatchObject({ text: 'export const a = 1;\n', commit: linkedCommit });
+    expect(await rest('repo=code-product&path=madarch/catalog.yaml')).toMatchObject({ text: manifest });
+    const queried = await fetch(`${server.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      query: `{ linked: source(repository: "code", path: "src/a.ts") { text }
+        own: source(repository: "code-product", path: "src/a.ts") { text }
+        published: source(repository: "code-product", path: "madarch/catalog.yaml") { text }
+        excluded: source(repository: "code-product", path: "node_modules/fixture/hidden.ts") { text }
+        dirty: source(repository: "code-product", path: "src/uncommitted.ts") { text } }`,
+    }) });
+    expect(await queried.json()).toEqual({ data: {
+      linked: { text: 'export const a = 1;\n' }, own: { text: 'export const product = 1;\n' }, published: { text: manifest }, excluded: null, dirty: null,
+    } });
+  } finally {
+    await server.stop();
+    git(repository, 'update-ref', 'HEAD', linkedCommit);
+    git(repository, 'restore', '--source=HEAD', '--staged', '--worktree', 'src/a.ts');
+    git(folder, 'update-ref', 'HEAD', productCommit);
+    git(folder, 'restore', '--source=HEAD', '--staged', '--worktree', 'src/a.ts', 'madarch');
+    rmSync(join(folder, 'src/uncommitted.ts'), { force: true });
+  }
+}, 60_000);
 
 test('a source read reports the commit of a fill another process published, with the text that fill left', async () => {
   const first = headOf();

@@ -144,11 +144,13 @@ async function fixture(work: (held: {
       const fileAbout = about.filter(edge => fileIds.has(edge.to!));
       console.log('disk support retained', JSON.stringify({ files: files.length, fileBlobAbout: fileAbout.length, gitlinks: gitlinks.length }));
       return () => {
-        expect(repositoryAbout).toHaveLength(2);
-        expect(new Set(repositoryAbout.map(edge => edge.to)).size).toBe(2);
+        // One inventory blob per pinned repository, and the product's own checkout is pinned to read its manifests, not
+        // as code (ALX-1937): the run reads the linked repository alone, so exactly one inventory belongs to a repository.
+        expect(repositoryAbout).toHaveLength(1);
+        expect(new Set(repositoryAbout.map(edge => edge.to)).size).toBe(1);
         expect(gitlinks).toHaveLength(0);
-        // The product that connected the repository stands as the source of its reference (0039, item 1). Its own
-        // checkout is pinned under its own id and is no repository it uses, so one edge names the linked repository.
+        // The product that connected the repository stands as the source of its reference (0039, item 1), and its own
+        // checkout reaches no plugin at all, so one edge names the linked repository.
         expect(uses).toHaveLength(1);
         expect(uses[0]!.fromKind).toBe('product');
         expect(Object.values(uses[0]!.fromKey)).toContain('disk-support');
@@ -261,8 +263,9 @@ test('an edited committed file retracts exactly its old file and repository inve
     expect(before).toContainEqual(repositoryEdges[0]!);
     for (const row of counts.filter(row => row.kind === 'code.directory' || row.kind === 'code.gitlink')) expect(row.retractions).toBe(0);
     const activeRepositoryEdges = (await held.about()).filter(edge => edge.toKind === 'code.repository');
-    expect(activeRepositoryEdges).toHaveLength(2);
-    expect(new Set(activeRepositoryEdges.map(edge => edge.toKey['name'])).size).toBe(2);
+    // The product's own checkout is no code repository of the graph (ALX-1937): the linked repository is the one held.
+    expect(activeRepositoryEdges).toHaveLength(1);
+    expect(new Set(activeRepositoryEdges.map(edge => edge.toKey['name'])).size).toBe(1);
     (await held.retained())();
   });
 }, 300_000);

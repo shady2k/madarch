@@ -357,8 +357,8 @@ test('disk states the product reference to each pinned repository, and none with
     expect(uses[0]!.evidence).toEqual(repositoryVertex!.evidence);
     const withoutProduct = await diskExtract({ ...repositoryUnit, inputs: { ...(repositoryUnit.inputs as Record<string, unknown>), product: undefined } } as unknown as Unit, context());
     expect((withoutProduct.edges ?? []).filter(edge => edge.kind === 'product.uses-repository')).toHaveLength(0);
-    // The product's own checkout is pinned under its own id, and a product does not refer to itself.
-    const ownCheckout = await diskExtract({ ...repositoryUnit, inputs: { ...(repositoryUnit.inputs as Record<string, unknown>), productRepository: 'fixture' } } as unknown as Unit, context());
-    expect((ownCheckout.edges ?? []).filter(edge => edge.kind === 'product.uses-repository')).toHaveLength(0);
+    // The product's own checkout never reaches this plugin (ALX-1937): the host hands it the manifest's linked
+    // repositories alone, so every pinned repository a turn reads is one the product refers to, and no repository is
+    // named by the plugin's declaration to be left out.
   });
 }, 60_000);
