@@ -223,7 +223,7 @@ jobs:
             exit 1
           fi
 
-  # The twelve green-slow files test/slow-files.json lists that this matrix runs,
+  # The thirteen green-slow files test/slow-files.json lists that this matrix runs,
   # measured over 30 seconds alone on a runner, run here one job each. Nine are the
   # speed-up stream's: they measured alone in three samples of the F4 tree (runs
   # 46044618928, 46045922097 and 46046625374; every entry also names its earlier
@@ -235,7 +235,11 @@ jobs:
   # and 30.011 s in shard 2, run 46072517676); the eleventh,
   # test/fill-run-recovery.test.ts, the fill-retry work's; the twelfth,
   # test/architecture-repository.test.ts, passed in 33.971 s alone and 31.354 s in
-  # shard 1 of run 46085362733.
+  # shard 1 of run 46085362733. The thirteenth, test/fill-role-service.test.ts, is
+  # madarch-47vw.7's own: one real confined fill through the role that replaced an
+  # ended one, 146 444 ms alone on box alx2078-review-fix (2 vCPU) and about 19 s
+  # owed to the fill on a runner, which is why it cannot sit in a blocking shard and
+  # keeps this named required job.
   # test/agent-fill-e2e.test.ts stays here after a return attempt on 2026-11-28: two
   # further required runs of main measured it at or below the bound alone
   # (46099717218 at f2c55b343: 26.76 s; 46102135712 at c94b578ec: 27.38 s), but the
@@ -279,6 +283,7 @@ jobs:
           - { file: test/source-follows-fill.test.ts, cases: 3 }
           - { file: test/fill-trace.test.ts, cases: 2 }
           - { file: test/fill-run-recovery.test.ts, cases: 8 }
+          - { file: test/fill-role-service.test.ts, cases: 1 }
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
