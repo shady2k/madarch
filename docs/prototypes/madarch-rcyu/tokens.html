@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>madarch-rcyu — the run page's Tokens line</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1d1d1f; --muted: #6b6b70; --line: #d8d8dd; --ground: #fbfbfc; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #f2f2f4; --muted: #a2a2a8; --line: #3a3a3e; --ground: #161618; } }
+  body { margin: 0; padding: 32px; background: var(--ground); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p { margin: 0 0 24px; color: var(--muted); }
+  .pair { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 900px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .title { font-size: 17px; font-weight: 600; margin: 0 0 12px; }
+  .line { margin: 0 0 6px; }
+  .line.muted { color: var(--muted); }
+  .bad { text-decoration: line-through; }
+  .note { margin-top: 24px; color: var(--muted); max-width: 900px; }
+</style>
+</head>
+<body>
+<h1>madarch-rcyu — the fill run page's Tokens line while the fill is active</h1>
+<p>A fill at 9 of 12 units. Its agent reports no token usage of its own, so the meter charges the streamed text.</p>
+<div class="pair">
+  <section class="card">
+    <h2>Before</h2>
+    <p class="title">Being filled — 9 of 12 units</p>
+    <p class="line muted">Elapsed: 12 min</p>
+    <p class="line bad">Tokens: 0 input · 0 output · 0 cache write · 0 cache read · 0 total</p>
+    <p class="line muted">Facts written: 41</p>
+  </section>
+  <section class="card">
+    <h2>After</h2>
+    <p class="title">Being filled — 9 of 12 units</p>
+    <p class="line muted">Elapsed: 12 min</p>
+    <p class="line">Tokens: 182 400 input · 12 050 output · 4 100 cache write · 96 300 cache read · 198 550 total</p>
+    <p class="line muted">Facts written: 41</p>
+  </section>
+</div>
+<p class="note">The numbers are the turns that ended, as the meter charged them: a turn that reported no usage states
+the estimate of its streamed text, so the page, the unit's row and the run's token cap keep one figure. The example's
+figures are illustrative; the check that reads the page is <code>test/live-agent-usage.test.ts</code>.</p>
+</body>
+</html>

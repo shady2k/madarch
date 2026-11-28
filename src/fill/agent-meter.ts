@@ -38,7 +38,8 @@
  *
  * The spend is written through `src/adapters/agent-usage.ts` after every turn (a crash costs the turn in flight, never
  * the run), and each turn's increment is one `agent.usage` span of the run's trace, so `madarch trace` and the run page
- * state what the model calls cost.
+ * state what the model calls cost. The increment is what the turn added to the row: a turn that reports no usage adds the
+ * estimate the stream charged, and its span states that estimate, so the page, the row and the run's cap keep one figure.
  */
 import type { AcpPromptResult, AcpUpdate, AcpUsageReport } from './acp.js';
 import type { AgentUsageAmount, AgentUsageRecord } from '../adapters/agent-usage.js';
@@ -321,7 +322,13 @@ export class AgentMeter {
         this.#add({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal }, []);
       }
     }
-    this.#writeSpan({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal });
+    // The span states what this turn added to the row, and a turn that reported no usage added the estimate the stream
+    // charged: the estimate stays in the row, and a span that left it out would make the run page state a spend below
+    // the row's and the cap's — zero for an adapter that reports no usage at all, while the run spends (madarch-rcyu).
+    const estimateStands = usage === undefined && this.#estimated > 0;
+    this.#writeSpan(estimateStands
+      ? { input: this.#estimated, output: 0, cacheWrite: 0, cacheRead: 0, total: this.#estimated }
+      : { input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal });
     this.#estimate = 0;
     this.#estimated = 0;
     await this.#save();

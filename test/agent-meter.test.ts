@@ -328,6 +328,31 @@ describe('the run\'s trace', () => {
     expect(renderTraceReport(report)).toContain('Agent usage: 1 prompt turns, 0 tokens in, 0 out, 0 written to cache, 0 read from cache, 0 total, cost 0.5 USD');
   });
 
+  test('a turn that reports no usage states its estimate in the span: the page shows the row\'s spend, not zero', async () => {
+    const where = folder();
+    const connection = await connectAcpAgent({ id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'no-usage'] }, { cwd: where });
+    connections.push(connection);
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: where });
+    const trace = openTrace({ store: where, runId: 'fill-unreported' });
+    const meter = meterOf({ run: 'fill-unreported' });
+    try {
+      await meter.runTurn(session, 'a turn that reports nothing', { field: 'definition', model: 'sonnet' });
+    } finally {
+      closeTrace(trace);
+    }
+    const [row] = meter.rows();
+    // The row keeps the estimate the stream charged, and the span states that same increment: the run page reads the
+    // spans, so a span of zeros would show a fill spending nothing while its row and the run's cap say it spent
+    // (madarch-rcyu: the owner's walk read 0 tokens while the agent worked).
+    expect(row?.reported).toBe(false);
+    expect(row?.totalTokens).toBeGreaterThan(0);
+    const spans = readTraceSpans(trace.file).filter((span) => span.name === 'agent.usage');
+    expect(spans).toHaveLength(1);
+    expect(spans[0]?.attributes).toMatchObject({ 'agent.tokens.input': row!.inputTokens, 'agent.tokens.total': row!.totalTokens, 'agent.reported': false });
+    expect(traceReportOf(readTraceSpans(trace.file), trace.file).agentUsage).toMatchObject({ inputTokens: row!.inputTokens, totalTokens: row!.totalTokens, turns: 1 });
+  });
+
   test('a turn\'s tokens are the increment the trace adds, never the run\'s cumulative report twice', async () => {
     const where = folder();
     const session = await sessionOf({
