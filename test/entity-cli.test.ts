@@ -1,5 +1,7 @@
 import { expect, spyOn, test } from 'bun:test';
+import { join } from 'node:path';
 import { entityCommand } from '../src/product/entity-cli.js';
+import { stripEngineLocation } from '../src/server/engine-location.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { AuthoredRefusal, authoredEntity } from '../src/graph/authored.js';
 import { GraphRefusal } from '../src/graph/validation.js';
@@ -88,9 +90,9 @@ test('entity CLI refusals keep the reason and field and drop an engine location 
   const authored = spyOn(KnowledgeProduct.prototype, 'authored');
   const status = spyOn(KnowledgeProduct.prototype, 'status').mockRejectedValue(new Error('no fill in refusal fixture'));
   const close = spyOn(KnowledgeProduct.prototype, 'close').mockResolvedValue(undefined);
-  async function run(args: string[]) {
+  async function run(args: string[], product = '/tmp/cli-fixture') {
     let output = '';
-    const code = await entityCommand([...args, '--product', '/tmp/cli-fixture', '--json'], { stdout: { write: text => { output += text; } } });
+    const code = await entityCommand([...args, '--product', product, '--json'], { stdout: { write: text => { output += text; } } });
     return { code, body: JSON.parse(output) };
   }
   try {
@@ -114,7 +116,40 @@ test('entity CLI refusals keep the reason and field and drop an engine location 
     expect(printed.split('\n')[0]).toBe('/values/queue_position: expected integer, got "bad"');
     expect(printed).not.toContain('$bunfs');
     expect(printed).not.toContain(releaseRoot());
+    // A product inside the checkout's own src/ keeps its file and line, in JSON and in plain text.
+    const nested = join(releaseRoot(), 'src', 'nested-fixture');
+    const named = `${nested}/workspace.yaml:1: the manifest ${nested}/workspace.yaml holds 999 at "schemaVersion": not a schema version this program knows`;
+    authored.mockRejectedValueOnce(new Error(named));
+    const kept = await run(['show', 'task', 'a1'], nested);
+    expect(kept.code).toBe(2);
+    expect(kept.body.error.message).toBe(named);
+    authored.mockRejectedValueOnce(new Error(named));
+    printed = '';
+    const keptPlain = await entityCommand(['show', 'task', 'a1', '--product', nested], { stdout: { write: () => {} }, stderr: { write: text => { printed += text; } } });
+    expect(keptPlain).toBe(2);
+    expect(printed.split('\n')[0]).toBe(named);
   } finally {
     authored.mockRestore(); status.mockRestore(); close.mockRestore();
   }
+});
+
+test('engine locations are stripped only where the location is the engine\'s', () => {
+  const src = join(releaseRoot(), 'src');
+  const reason = '/values/count: expected integer, got "bad"';
+  // An engine module's own location goes, line and column included.
+  expect(stripEngineLocation(`${join(src, 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
+  expect(stripEngineLocation(`/$bunfs/root/madarch-linux-arm64:123:4: ${reason}`)).toBe(reason);
+  expect(stripEngineLocation(`Error: ${join(src, 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
+  // An engine location with no line number goes too.
+  expect(stripEngineLocation(`${join(src, 'fill', 'plugin-turns.ts')}: the unit is missing`)).toBe('the unit is missing');
+  // A folder of the checkout holding a colon and a space does not end the location before its line.
+  expect(stripEngineLocation(`${join(src, 'rev: two', 'graph', 'validation.ts')}:1: ${reason}`)).toBe(reason);
+  // The product asked about keeps its own file and line, even inside the engine's src/.
+  const product = join(src, 'fixture: one');
+  const named = `${join(product, 'workspace.yaml')}:1: the manifest holds 999 at "schemaVersion"`;
+  expect(stripEngineLocation(named, product)).toBe(named);
+  // A product path outside the engine is nobody's to strip, asked about or not.
+  expect(stripEngineLocation('/tmp/product/workspace.yaml:1: the manifest holds 999')).toBe('/tmp/product/workspace.yaml:1: the manifest holds 999');
+  // A plain reason names no location and keeps its colons.
+  expect(stripEngineLocation('field "queue_position": expected integer')).toBe('field "queue_position": expected integer');
 });
