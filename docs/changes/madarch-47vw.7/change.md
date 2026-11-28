@@ -48,6 +48,15 @@ with no end at all. Two causes, one part of the patch each.
   process that died without settling and the sweep hands it to the next attempt, while a
   job that is genuinely queued or running ends this press's request with a terminal
   answer instead of leaving the page waiting behind it.
+- **A job is acknowledged only for the end it published.** The fill role settles its
+  `fill-runs` job done only when the run's end is durable afterwards: an attempt that
+  failed before it built its service published no end at all (a run already `planning`
+  or `running` takes none from `failRequestedFill`), so the queue's next attempts carry
+  the run and the last one ends it, instead of a completed job leaving the press waiting
+  for an end no process writes.
+- **A request refused at admission ends too.** A press the product refuses because another
+  run still holds the chain records its own end, so the pressing page answers rather than
+  waiting behind a run that never started.
 
 ## Rationale
 
@@ -107,3 +116,5 @@ None.
 - A run that published or moved inside the recovery window, or whose outstanding unit job
   the queue still holds, is not recovered by another caller, and a queue read that fails
   is no proof of abandonment.
+- A job settled done carries a run whose end a press can read: an attempt that published
+  no end leaves its job to the queue's next attempt, and the last attempt ends the run.

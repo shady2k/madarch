@@ -345,10 +345,12 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
     await run.close();
     run = undefined;
     state.running = undefined;
-    // A retriable attempt keeps the run standing for the queue's next one; anything else is this run's answer, so the job
-    // settles done and the product's singleton is free at once rather than held behind a job waiting to be retried
-    // (ALX-2024). A job whose retries are spent is the run's last chance: what it leaves behind ends here.
-    const outcome = result.retryable === true ? { ok: false, ...(result.message === undefined ? {} : { message: result.message }) } : { ok: true };
+    // The run's end is the answer the press waits on, so only an attempt that published one acknowledges its job as done:
+    // a job settled done is never handed out again, and a press whose job was acknowledged without an end waits for ever
+    // (ALX-2026 finding 5). An attempt that gave up leaves its job to the queue's next try, and the last one ends the run it
+    // leaves behind; an attempt that published an end of its own is that run's answer, and its job settles done.
+    const ended = result.ok || (await readFillEnd(held.owner, data.runId).catch(() => null)) !== null;
+    const outcome = result.retryable === true || !ended ? { ok: false, ...(result.message === undefined ? {} : { message: result.message }) } : { ok: true };
     if (await settleFillRun(held.queue, job, outcome) === 'failed') await endExhausted(held, job, result.message ?? `the fill of ${data.product} ended without an answer`).catch(() => undefined);
     log(`madarch fill: ${data.product} run ${data.runId} ${result.ok ? 'filled' : `failed: ${result.message ?? ''}`}`);
   } catch (error) {
